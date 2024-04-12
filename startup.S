@@ -92,7 +92,7 @@ _enter_bootloader:
 .option norelax
     la gp, __global_pointer$
 .option pop
-    la sp, _bootloader_stack
+    la sp, 0
 
     // Load data section from flash to RAM
     la a0, _data_lma
@@ -116,6 +116,9 @@ _enter_bootloader:
     addi a0, a0, 4
     bltu a0, a1, 1b
 2:
+
+    li t0, 0x1f
+    csrw 0xbc0, t0
 
     // Invoke main
     la t0, main

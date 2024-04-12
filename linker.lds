@@ -4,18 +4,12 @@ MEMORY
 {
     /* Try to squeeze down to this target size */
     FLASH (rx) : ORIGIN = 0x00000000, LENGTH = 2K
-    /* We have a total of 512 bytes here.
-    - Need 256 bytes to buffer a flash page across USB packets
-    - Need space for USB buffers
-    - Tiny tiny amount of free space
-    */
-    USBRAM (rw) : ORIGIN = 0x400060c0, LENGTH = 64
+    LOL_NO_RAM (rw) : ORIGIN = 0x400060c0, LENGTH = 0
 }
 
 SECTIONS
 {
     PROVIDE(_bootloader_limit = ORIGIN(FLASH) + LENGTH(FLASH));
-    PROVIDE(_bootloader_stack = ORIGIN(USBRAM) + LENGTH(USBRAM));
 
     .vector :
     {
@@ -54,7 +48,7 @@ SECTIONS
         *(.srodata .srodata.*)
         . = ALIGN(4);
         PROVIDE( _edata = .);
-    } >USBRAM AT>FLASH
+    } >LOL_NO_RAM AT>FLASH
 
     .bss :
     {
@@ -66,7 +60,7 @@ SECTIONS
         *(COMMON*)
         . = ALIGN(4);
         PROVIDE( _ebss = .);
-    } >USBRAM
+    } >LOL_NO_RAM
 
     PROVIDE( _end = _ebss);
 }
