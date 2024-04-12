@@ -21,6 +21,8 @@ _start:
     addi a1, a1, 4
     bltu a1, a2, 1b
 2:
+    // Load stack pointer
+    la sp, _eusrstack 
 
     // Clear bss section
     la a0, _sbss
