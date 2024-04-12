@@ -1,8 +1,5 @@
 ENTRY( _start )
 
-__stack_size = 512;
-PROVIDE( _stack_size = __stack_size );
-
 MEMORY
 {
     /* Try to squeeze down to this target size */
@@ -17,6 +14,9 @@ MEMORY
 
 SECTIONS
 {
+    PROVIDE(_bootloader_limit = ORIGIN(FLASH) + LENGTH(FLASH));
+    PROVIDE(_bootloader_stack = ORIGIN(USBRAM) + LENGTH(USBRAM));
+
     .vector :
     {
         *(.vector);
