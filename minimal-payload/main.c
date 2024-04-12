@@ -1,5 +1,4 @@
-int test = 0x12345;
-int test2;
+#include <stdint.h>
 
 #pragma GCC diagnostic ignored "-Wprio-ctor-dtor"
 __attribute__((constructor(0))) static void setup_qingke() {
@@ -10,16 +9,19 @@ __attribute__((constructor(0))) static void setup_qingke() {
     );
 }
 
-__attribute__((constructor)) static void constructor() {
-    test2 = 0x5678;
-}
-
-__attribute__((destructor)) static void destructor() {
-    test2 = 0x9abc;
-}
+#define R32_RCC_APB2PCENR   (*(volatile uint32_t*)0x40021018)
+#define R32_GPIOA_CFGLR     (*(volatile uint32_t*)0x40010800)
+#define R32_GPIOA_BSHR      (*(volatile uint32_t*)0x40010810)
 
 int main(void) {
-    test++;
-    test2--;
-    return 123;
+    R32_RCC_APB2PCENR |= 1 << 2;
+    R32_GPIOA_CFGLR = (R32_GPIOA_CFGLR & ~0xf) | (0b0010 << 0);
+    while (1) {
+        R32_GPIOA_BSHR = 1 << 0;
+        for (int i = 0; i < 500000; i++)
+            asm volatile("");
+        R32_GPIOA_BSHR = 1 << 16;
+        for (int i = 0; i < 500000; i++)
+            asm volatile("");
+    }
 }
