@@ -41,10 +41,10 @@ const uint8_t USB_DEV_DESC[18] __attribute__((aligned(16))) = {
     1,              // bNumConfigurations
 };
 
-const uint8_t USB_CONF_DESC[0x12] __attribute__((aligned(16))) = {
+const uint8_t USB_CONF_DESC[0x20] __attribute__((aligned(16))) = {
     9,              // bLength
     2,              // bDescriptorType
-    0x12, 0x00,     // wTotalLength
+    0x20, 0x00,     // wTotalLength
     1,              // bNumInterfaces
     1,              // bConfigurationValue
     0,              // iConfiguration
@@ -55,11 +55,25 @@ const uint8_t USB_CONF_DESC[0x12] __attribute__((aligned(16))) = {
     4,              // bDescriptorType
     0,              // bInterfaceNumber
     0,              // bAlternateSetting
-    0,              // bNumEndpoints
-    0xff,           // bInterfaceClass
-    0xff,           // bInterfaceSubClass
-    0xff,           // bInterfaceProtocol
+    2,              // bNumEndpoints
+    0x08,           // bInterfaceClass
+    0x05,           // bInterfaceSubClass
+    0x50,           // bInterfaceProtocol
     0,              // iInterface
+
+    7,              // bLength
+    5,              // bDescriptorType
+    0x81,           // bEndpointAddress
+    2,              // bmAttributes
+    0x40, 0x00,     // wMaxPacketSize
+    0,              // bInterval
+
+    7,              // bLength
+    5,              // bDescriptorType
+    0x01,           // bEndpointAddress
+    2,              // bmAttributes
+    0x40, 0x00,     // wMaxPacketSize
+    0,              // bInterval
 };
 
 const uint8_t USB_MANUF[12] = "ArcaneNibble";
@@ -103,10 +117,10 @@ const uint8_t HEXLUT[16] = "0123456789ABCDEF";
 #define STATE_CTRL_SIMPLE_IN    0x05
 
 __attribute__((always_inline)) static inline void set_ep_mode(uint8_t ep, uint8_t stat_rx, uint8_t stat_tx, uint16_t xtra) {
-    uint16_t val = R16_USBD_EPR(0);
+    uint16_t val = R16_USBD_EPR(ep);
     uint8_t cur_stat_rx = (val >> 12) & 0b11;
     uint8_t cur_stat_tx = (val >> 4) & 0b11;
-    R16_USBD_EPR(0) = (val & 0b0000011000001111) | xtra | ((stat_rx ^ cur_stat_rx) << 12) | ((stat_tx ^ cur_stat_tx) << 4);
+    R16_USBD_EPR(ep) = (val & 0b0000011000001111) | xtra | ((stat_rx ^ cur_stat_rx) << 12) | ((stat_tx ^ cur_stat_tx) << 4);
 }
 
 __attribute__((always_inline)) static inline uint32_t min(uint32_t a, uint32_t b) {
@@ -154,7 +168,7 @@ __attribute__((naked)) int main(void) {
         if (usb_int_status & (1 << 10)) {
             // RESET
             // set all to STALL, SETUP will come in nonetheless
-            R16_USBD_EPR(0) = (0b01 << 12) | (0b01 << 9) | (0b01 << 4);
+            set_ep_mode(0, 0b01, 0b01, 0b01 << 9);
             R16_USBD_DADDR = 0x80;
         } else if (usb_int_status & (1 << 15)) {
             if ((usb_int_status & 0x1f) == 0x10) {
@@ -251,6 +265,13 @@ __attribute__((naked)) int main(void) {
                             active_config = wValue;
                             USB_DESCS[0].count_tx = 0;
                             set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
+                            if (wValue) {
+                                // activate, expect DATA0
+                                R16_USBD_EPR(1) = ((R16_USBD_EPR(1) & 0x7070) ^ 0b0011000000010000) | 1;
+                            } else {
+                                // deactivate
+                                R16_USBD_EPR(1) = (R16_USBD_EPR(1) & 0x7070) | 1;
+                            }
                         } else {
                             set_ep_mode(0, 0b01, 0b01, 0);  // STALL for both
                         }
@@ -359,6 +380,14 @@ __attribute__((naked)) int main(void) {
                         set_ep_mode(0, 0b11, 0b01, 1 << 8);     // ACK for OUT ZLP, STALL for IN
                         break;
                 }
+            }
+            if ((usb_int_status & 0x1f) == 0x01) {
+                // ep 1 in
+                // while (1) {}
+            }
+            if ((usb_int_status & 0x1f) == 0x11) {
+                // ep 1 out
+                while (1) {}
             }
         }
         R16_USBD_ISTR = 0;
