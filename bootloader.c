@@ -94,15 +94,13 @@ const uint8_t HEXLUT[16] = "0123456789ABCDEF";
 #define STATE_SET_ADDR          0x00
 // state[15:8] = byte pos
 // state[7:0] = bytes left
-#define STATE_GET_DEV_DESC      0x01
-#define STATE_GET_CONF_DESC     0x02
+#define STATE_GET_DESC          0x01
 // state[15:8] = str pos *ascii*
 // state[7:0] = bytes left *unicode*
-#define STATE_GET_STR_MANUF     0x03
-#define STATE_GET_STR_PRODUCT   0x04
-#define STATE_GET_STR_SERIAL    0x05
-#define STATE_CTRL_STATUS_OUT   0x06
-#define STATE_CTRL_SIMPLE_IN    0x07
+#define STATE_GET_STR_STATIC    0x02
+#define STATE_GET_STR_SERIAL    0x03
+#define STATE_CTRL_STATUS_OUT   0x04
+#define STATE_CTRL_SIMPLE_IN    0x05
 
 __attribute__((always_inline)) static inline void set_ep_mode(uint8_t ep, uint8_t stat_rx, uint8_t stat_tx, uint16_t xtra) {
     uint16_t val = R16_USBD_EPR(0);
@@ -148,6 +146,8 @@ __attribute__((naked)) int main(void) {
 
     uint32_t master_state = 0;
     uint32_t active_config = 0;
+    const uint8_t *outputting_desc = 0;
+    uint32_t outputting_desc_sz = 0;
 
     while (1) {
         uint32_t usb_int_status = R16_USBD_ISTR;
@@ -177,26 +177,22 @@ __attribute__((naked)) int main(void) {
                     } else if (bRequest_bmRequestType == 0x0680) {
                         // GET_DESCRIPTOR
                         uint32_t wValue = USB_EP0_OUT(2);
-                        if (wValue == 0x0100) {
-                            for (int i = 0; i < 8; i+=2)
-                                USB_EP0_IN(i) = *((uint16_t*)(&USB_DEV_DESC[i]));
-                            if (wLength < 8) {
-                                USB_DESCS[0].count_tx = wLength;
-                                master_state = (STATE_GET_DEV_DESC << 24);
+                        if (wValue == 0x0100 || wValue == 0x0200) {
+                            if (wValue == 0x0100) {
+                                outputting_desc = USB_DEV_DESC;
+                                outputting_desc_sz = sizeof(USB_DEV_DESC);
                             } else {
-                                USB_DESCS[0].count_tx = 8;
-                                master_state = (STATE_GET_DEV_DESC << 24) | (8 << 8) | (wLength - 8);
+                                outputting_desc = USB_CONF_DESC;
+                                outputting_desc_sz = sizeof(USB_CONF_DESC);
                             }
-                            set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
-                        } else if (wValue == 0x0200) {
                             for (int i = 0; i < 8; i+=2)
-                                USB_EP0_IN(i) = *((uint16_t*)(&USB_CONF_DESC[i]));
+                                USB_EP0_IN(i) = *((uint16_t*)(outputting_desc + i));
                             if (wLength < 8) {
                                 USB_DESCS[0].count_tx = wLength;
-                                master_state = (STATE_GET_CONF_DESC << 24);
+                                master_state = (STATE_GET_DESC << 24);
                             } else {
                                 USB_DESCS[0].count_tx = 8;
-                                master_state = (STATE_GET_CONF_DESC << 24) | (8 << 8) | (wLength - 8);
+                                master_state = (STATE_GET_DESC << 24) | (8 << 8) | (wLength - 8);
                             }
                             set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
                         } else if (wValue == 0x0300) {
@@ -206,28 +202,23 @@ __attribute__((naked)) int main(void) {
                             USB_DESCS[0].count_tx = min(4, wLength);
                             master_state = (STATE_CTRL_SIMPLE_IN << 24);
                             set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
-                        } else if (wValue == 0x0301) {
-                            USB_EP0_IN(0) = 0x0300 | (sizeof(USB_MANUF) * 2 + 2);
-                            for (int i = 0; i < 3; i++)
-                                USB_EP0_IN(i * 2 + 2) = USB_MANUF[i];
-                            if (wLength < 8) {
-                                USB_DESCS[0].count_tx = wLength;
-                                master_state = (STATE_GET_STR_MANUF << 24);
+                        } else if (wValue == 0x0301 || wValue == 0x0302) {
+                            if (wValue == 0x0301) {
+                                outputting_desc = USB_MANUF;
+                                outputting_desc_sz = sizeof(USB_MANUF);
                             } else {
-                                USB_DESCS[0].count_tx = 8;
-                                master_state = (STATE_GET_STR_MANUF << 24) | (3 << 8) | (wLength - 8);
+                                outputting_desc = USB_PRODUCT;
+                                outputting_desc_sz = sizeof(USB_PRODUCT);
                             }
-                            set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
-                        } else if (wValue == 0x0302) {
-                            USB_EP0_IN(0) = 0x0300 | (sizeof(USB_PRODUCT) * 2 + 2);
+                            USB_EP0_IN(0) = 0x0300 | (outputting_desc_sz * 2 + 2);
                             for (int i = 0; i < 3; i++)
-                                USB_EP0_IN(i * 2 + 2) = USB_PRODUCT[i];
+                                USB_EP0_IN(i * 2 + 2) = outputting_desc[i];
                             if (wLength < 8) {
                                 USB_DESCS[0].count_tx = wLength;
-                                master_state = (STATE_GET_STR_PRODUCT << 24);
+                                master_state = (STATE_GET_STR_STATIC << 24);
                             } else {
                                 USB_DESCS[0].count_tx = 8;
-                                master_state = (STATE_GET_STR_PRODUCT << 24) | (3 << 8) | (wLength - 8);
+                                master_state = (STATE_GET_STR_STATIC << 24) | (3 << 8) | (wLength - 8);
                             }
                             set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
                         } else if (wValue == 0x0303) {
@@ -286,7 +277,7 @@ __attribute__((naked)) int main(void) {
                         // back to stall for everything, expect SETUP
                         set_ep_mode(0, 0b01, 0b01, 0);  // STALL for both
                         break;
-                    case STATE_GET_DEV_DESC:
+                    case STATE_GET_DESC:
                         {
                             uint32_t byte_pos = (master_state >> 8) & 0xff;
                             uint32_t bytes_left = master_state & 0xff;
@@ -296,47 +287,22 @@ __attribute__((naked)) int main(void) {
                             } else {
                                 uint32_t bytes = bytes_left;
                                 if (bytes > 8) bytes = 8;
-                                if (byte_pos + bytes > sizeof(USB_DEV_DESC))
-                                    bytes = sizeof(USB_DEV_DESC) - byte_pos;
+                                if (byte_pos + bytes > outputting_desc_sz)
+                                    bytes = outputting_desc_sz - byte_pos;
                                 for (int i = 0; i < bytes; i+=2)
-                                    USB_EP0_IN(i) = *((uint16_t*)(&USB_DEV_DESC[byte_pos + i]));
+                                    USB_EP0_IN(i) = *((uint16_t*)(outputting_desc + byte_pos + i));
                                 if (bytes < 8) {
                                     USB_DESCS[0].count_tx = bytes;
-                                    master_state = (STATE_GET_DEV_DESC << 24);
+                                    master_state = (STATE_GET_DESC << 24);
                                 } else {
                                     USB_DESCS[0].count_tx = 8;
-                                    master_state = (STATE_GET_DEV_DESC << 24) | ((byte_pos + 8) << 8) | (bytes_left - 8);
+                                    master_state = (STATE_GET_DESC << 24) | ((byte_pos + 8) << 8) | (bytes_left - 8);
                                 }
                                 set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
                             }
                         }
                         break;
-                    case STATE_GET_CONF_DESC:
-                        {
-                            uint32_t byte_pos = (master_state >> 8) & 0xff;
-                            uint32_t bytes_left = master_state & 0xff;
-                            if (bytes_left == 0) {
-                                master_state = (STATE_CTRL_STATUS_OUT << 24);
-                                set_ep_mode(0, 0b11, 0b01, 1 << 8);     // ACK for OUT ZLP, STALL for IN
-                            } else {
-                                uint32_t bytes = bytes_left;
-                                if (bytes > 8) bytes = 8;
-                                if (byte_pos + bytes > sizeof(USB_CONF_DESC))
-                                    bytes = sizeof(USB_CONF_DESC) - byte_pos;
-                                for (int i = 0; i < bytes; i+=2)
-                                    USB_EP0_IN(i) = *((uint16_t*)(&USB_CONF_DESC[byte_pos + i]));
-                                if (bytes < 8) {
-                                    USB_DESCS[0].count_tx = bytes;
-                                    master_state = (STATE_GET_CONF_DESC << 24);
-                                } else {
-                                    USB_DESCS[0].count_tx = 8;
-                                    master_state = (STATE_GET_CONF_DESC << 24) | ((byte_pos + 8) << 8) | (bytes_left - 8);
-                                }
-                                set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
-                            }
-                        }
-                        break;
-                    case STATE_GET_STR_MANUF:
+                    case STATE_GET_STR_STATIC:
                         {
                             uint32_t str_pos = (master_state >> 8) & 0xff;
                             uint32_t bytes_left = master_state & 0xff;
@@ -347,42 +313,16 @@ __attribute__((naked)) int main(void) {
                                 // XXX this is confusing
                                 uint32_t ascii_bytes = (bytes_left + 1) / 2;
                                 if (ascii_bytes > 4) ascii_bytes = 4;
-                                if (str_pos + ascii_bytes > sizeof(USB_MANUF))
-                                    ascii_bytes = sizeof(USB_MANUF) - str_pos;
+                                if (str_pos + ascii_bytes > outputting_desc_sz)
+                                    ascii_bytes = outputting_desc_sz - str_pos;
                                 for (int i = 0; i < ascii_bytes; i++)
-                                    USB_EP0_IN(i * 2) = USB_MANUF[str_pos + i];
+                                    USB_EP0_IN(i * 2) = outputting_desc[str_pos + i];
                                 if (ascii_bytes < 4) {
                                     USB_DESCS[0].count_tx = bytes_left;
-                                    master_state = (STATE_GET_STR_MANUF << 24);
+                                    master_state = (STATE_GET_STR_STATIC << 24);
                                 } else {
                                     USB_DESCS[0].count_tx = 8;
-                                    master_state = (STATE_GET_STR_MANUF << 24) | ((str_pos + 4) << 8) | (bytes_left - 8);
-                                }
-                                set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
-                            }
-                        }
-                        break;
-                    case STATE_GET_STR_PRODUCT:
-                        {
-                            uint32_t str_pos = (master_state >> 8) & 0xff;
-                            uint32_t bytes_left = master_state & 0xff;
-                            if (bytes_left == 0) {
-                                master_state = (STATE_CTRL_STATUS_OUT << 24);
-                                set_ep_mode(0, 0b11, 0b01, 1 << 8);     // ACK for OUT ZLP, STALL for IN
-                            } else {
-                                // XXX this is confusing
-                                uint32_t ascii_bytes = (bytes_left + 1) / 2;
-                                if (ascii_bytes > 4) ascii_bytes = 4;
-                                if (str_pos + ascii_bytes > sizeof(USB_PRODUCT))
-                                    ascii_bytes = sizeof(USB_PRODUCT) - str_pos;
-                                for (int i = 0; i < ascii_bytes; i++)
-                                    USB_EP0_IN(i * 2) = USB_PRODUCT[str_pos + i];
-                                if (ascii_bytes < 4) {
-                                    USB_DESCS[0].count_tx = bytes_left;
-                                    master_state = (STATE_GET_STR_PRODUCT << 24);
-                                } else {
-                                    USB_DESCS[0].count_tx = 8;
-                                    master_state = (STATE_GET_STR_PRODUCT << 24) | ((str_pos + 4) << 8) | (bytes_left - 8);
+                                    master_state = (STATE_GET_STR_STATIC << 24) | ((str_pos + 4) << 8) | (bytes_left - 8);
                                 }
                                 set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
                             }
