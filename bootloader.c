@@ -94,6 +94,55 @@ const uint8_t INQUIRY_RESPONSE[36] __attribute__((aligned(16))) = {
     ' ', ' ', ' ', ' ',
 };
 
+const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(16))) = {
+    0x00, 0x00, 0x00,                           // jump
+    'A', 'r', 'c', 'a', 'n', 'e', 'N', 'b',     // oem name
+    0x00, 0x02,                                 // 512 bytes/sector
+    0x01,                                       // 1 sector/cluster
+    0x01, 0x00,                                 // 1 reserved sector
+    0x01,                                       // 1 fat
+    0x10, 0x00,                                 // 16 root dir entries
+    0x00, 0x40,                                 // num sectors
+    0xf8,                                       // media descriptor
+    0x40, 0x00,                                 // 16384 sectors/clusters -> 64 FAT sectors
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,         // useless stuff
+    0x80,                                       // "drive number"
+    0x00,                                       // reserved
+    0x29,                                       // magic
+    0xde, 0xad, 0xbe, 0xef,                     // serial number
+    'C', 'H', '3', '2', 'V', ' ', 'U', 'F', '2', ' ', ' ',      // volume label
+    'F', 'A', 'T', '1', '6', ' ', ' ', ' ',     // fs type
+};
+
+const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(16))) = {
+    'C', 'H', '3', '2', 'V', ' ', 'U', 'F', '2', ' ', ' ',      // name
+    0x08,                                                       // attributes (volume label)
+    0x00, 0x00,                                                 // reserved
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,                         // timestamps
+    0x00, 0x00,                                                 // reserved
+    0x00, 0x00, 0x00, 0x00,                                     // timestamps
+    0x00, 0x00,                                                 // start cluster
+    0x00, 0x00, 0x00, 0x00,                                     // file size]
+
+    'I', 'N', 'F', 'O', '_', 'U', 'F', '2', 'T', 'X', 'T',      // name
+    0x01,                                                       // attributes (RO)
+    0x00, 0x00,                                                 // reserved
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,                         // timestamps
+    0x00, 0x00,                                                 // reserved
+    0x00, 0x00, 0x00, 0x00,                                     // timestamps
+    0x00, 0x00,                                                 // start cluster
+    0x00, 0x00, 0x00, 0x00,                                     // file size
+
+    'I', 'N', 'D', 'E', 'X', ' ', ' ', ' ', 'H', 'T', 'M',      // name
+    0x01,                                                       // attributes (RO)
+    0x00, 0x00,                                                 // reserved
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,                         // timestamps
+    0x00, 0x00,                                                 // reserved
+    0x00, 0x00, 0x00, 0x00,                                     // timestamps
+    0x00, 0x00,                                                 // start cluster
+    0x00, 0x00, 0x00, 0x00,                                     // file size
+};
+
 #define ESIG_UNIID(x)       (*(volatile uint8_t*)(0x1FFFF7E8 + (x)))
 // XXX manual claims 96 bits but only 64 bits seem to actually be programmed?
 
@@ -157,10 +206,28 @@ __attribute__((always_inline)) static inline uint32_t min(uint32_t a, uint32_t b
 }
 
 __attribute__((always_inline)) static inline void synthesize_block(uint32_t block, uint32_t piece) {
-    if (piece == 0) {
-        USB_EP1_IN(0) = block;
-        USB_EP1_IN(2) = block >> 16;
+    if (block == 0) {
+        if (piece == 0) {
+            for (int i = 0; i < sizeof(BOOT_SECTOR) / 2; i++)
+                USB_EP1_IN(i * 2) = ((uint16_t*)BOOT_SECTOR)[i];
+            for (int i = sizeof(BOOT_SECTOR) / 2; i < 32; i++)
+                USB_EP1_IN(i * 2) = 0;
+        } else {
+            for (int i = 0; i < 32; i++)
+                USB_EP1_IN(i * 2) = 0;
+        }
+    } else if (block == 1 && piece == 0) {
+        USB_EP1_IN(0) = 0xfff8;
+        USB_EP1_IN(2) = 0xffff;
         for (int i = 2; i < 32; i++)
+            USB_EP1_IN(i * 2) = 0;
+    } else if (block == 65 && piece == 0) {
+        for (int i = 0; i < 32; i++)
+            USB_EP1_IN(i * 2) = ((uint16_t*)ROOT_DIR)[i];
+    } else if (block == 65 && piece == 1) {
+        for (int i = 0; i < 16; i++)
+            USB_EP1_IN(i * 2) = ((uint16_t*)ROOT_DIR)[32+ i];
+        for (int i = 16; i < 32; i++)
             USB_EP1_IN(i * 2) = 0;
     } else {
         for (int i = 0; i < 32; i++)
