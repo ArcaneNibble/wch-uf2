@@ -177,6 +177,8 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
 #define R32_RCC_CFGR0       (*(volatile uint32_t*)0x40021004)
 #define R32_RCC_APB2PCENR   (*(volatile uint32_t*)0x40021018)
 #define R32_RCC_APB1PCENR   (*(volatile uint32_t*)0x4002101C)
+#define R32_RCC_RSTSCKR     (*(volatile uint32_t*)0x40021024)
+
 #define R32_GPIOA_CFGLR     (*(volatile uint32_t*)0x40010800)
 #define R32_GPIOA_CFGHR     (*(volatile uint32_t*)0x40010804)
 #define R32_GPIOA_BSHR      (*(volatile uint32_t*)0x40010810)
@@ -284,7 +286,9 @@ __attribute__((always_inline)) static inline void synthesize_block(uint32_t bloc
 }
 
 __attribute__((naked)) int main(void) {
+    // clear all reset causes
     R16_BKP_DATAR10 = 0;
+    R32_RCC_RSTSCKR = 1 << 24;
 
     // PLL setup: system clock 96 MHz
     R32_EXTEN_CTR |= (1 << 4);  // sneaky div2
@@ -806,8 +810,6 @@ error_csw:
                         break;
                     case STATE_SENT_CSW_REBOOT:
                         // todo reboot into ram
-                        for (int i = 0; i < 1000000; i++)
-                            asm volatile("");
                         R32_EXTEN_CTR &= ~(1 << 1);
                         PFIC_SCTLR = 0x80000000;
                         while (1) { asm volatile(""); }

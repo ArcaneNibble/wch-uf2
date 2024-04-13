@@ -7,7 +7,7 @@ MEMORY
 {
     /* CH32V20x_D6 -> 10 KB SRAM */
     /* allow full flash (incl. non-zero-wait) */
-    FLASH (rx) : ORIGIN = 0x00000000, LENGTH = 224K
+    FLASH (rx) : ORIGIN = 0x00002000, LENGTH = (224K - 8K)
     RAM (xrw) : ORIGIN = 0x20000000, LENGTH = 10K
 }
 
