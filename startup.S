@@ -87,11 +87,7 @@ _wipwipwip:
     j _bootloader_limit
 
 _enter_bootloader:
-    // Set up global pointer
-.option push
-.option norelax
-    la gp, __global_pointer$
-.option pop
+    la gp, 0
     la sp, 0
 
     // Load data section from flash to RAM
