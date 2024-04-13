@@ -186,6 +186,12 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
 #define R16_USBD_ISTR       (*(volatile uint16_t*)0x40005C44)
 #define R16_USBD_DADDR      (*(volatile uint16_t*)0x40005C4C)
 
+#define R32_FLASH_KEYR      (*(volatile uint32_t*)0x40022004)
+#define R32_FLASH_STATR     (*(volatile uint32_t*)0x4002200C)
+#define R32_FLASH_CTLR      (*(volatile uint32_t*)0x40022010)
+#define R32_FLASH_ADDR      (*(volatile uint32_t*)0x40022014)
+#define R32_FLASH_MODEKEYR  (*(volatile uint32_t*)0x40022024)
+
 #define R32_EXTEN_CTR       (*(volatile uint32_t*)0x40023800)
 
 #define PFIC_SCTLR          (*(volatile uint32_t*)0xE000ED10)
@@ -745,6 +751,25 @@ error_csw:
                                         UF2_BLOCKS_LEFT--;
 
                                     // todo flash the file
+                                    // todo ram download mode
+                                    R32_FLASH_KEYR = 0x45670123;
+                                    R32_FLASH_KEYR = 0xCDEF89AB;
+                                    R32_FLASH_MODEKEYR = 0x45670123;
+                                    R32_FLASH_MODEKEYR = 0xCDEF89AB;
+                                    R32_FLASH_CTLR = 1 << 17;
+                                    R32_FLASH_ADDR = address;
+                                    R32_FLASH_CTLR = (1 << 17) | (1 << 6);
+                                    while (R32_FLASH_STATR & 1) {}
+                                    R32_FLASH_CTLR = 1 << 16;
+                                    for (int i = 0; i < 64; i++) {
+                                        volatile uint32_t *addr = (volatile uint32_t *)(address + i * 4);
+                                        uint32_t val = USB_SECTOR_STASH(i * 4) | (USB_SECTOR_STASH(i * 4 + 2) << 16);
+                                        *addr = val;
+                                        while (R32_FLASH_STATR & 2) {}
+                                    }
+                                    R32_FLASH_CTLR = (1 << 16) | (1 << 21);
+                                    while (R32_FLASH_STATR & 1) {}
+                                    R32_FLASH_CTLR = (1 << 15) | (1 << 7);
                                 }
                             }
 
