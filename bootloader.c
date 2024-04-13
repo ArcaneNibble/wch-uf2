@@ -207,12 +207,8 @@ __attribute__((naked)) int main(void) {
                         set_ep_mode(0, 0b01, 0b01, 0);  // STALL for both
                     }
                 } else {
-                    switch (master_state >> 24) {
-                        case STATE_CTRL_STATUS_OUT:
-                            // back to stall for everything, expect SETUP
-                            set_ep_mode(0, 0b01, 0b01, 0);  // STALL for both
-                            break;
-                    }
+                    // back to stall for everything, expect SETUP
+                    set_ep_mode(0, 0b01, 0b01, 0);  // STALL for both
                 }
             }
             if ((usb_int_status & 0x1f) == 0x00) {
