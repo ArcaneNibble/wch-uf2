@@ -24,7 +24,7 @@ typedef struct USBD_descriptor {
 // +0x200
 //      <256-byte flash page buffer>
 
-const uint8_t USB_DEV_DESC[18] __attribute__((aligned(16))) = {
+const uint8_t USB_DEV_DESC[18] __attribute__((aligned(2))) = {
     18,             // bLength
     1,              // bDescriptorType
     0x00, 0x02,     // bcdUSB
@@ -41,7 +41,7 @@ const uint8_t USB_DEV_DESC[18] __attribute__((aligned(16))) = {
     1,              // bNumConfigurations
 };
 
-const uint8_t USB_CONF_DESC[0x20] __attribute__((aligned(16))) = {
+const uint8_t USB_CONF_DESC[0x20] __attribute__((aligned(2))) = {
     9,              // bLength
     2,              // bDescriptorType
     0x20, 0x00,     // wTotalLength
@@ -80,7 +80,7 @@ const uint16_t USB_MANUF[13] = u"\u031aArcaneNibble";
 const uint16_t USB_PRODUCT[15] = u"\u031eCH32V UF2 Boot";
 const uint8_t HEXLUT[16] = "0123456789ABCDEF";
 
-const uint8_t INQUIRY_RESPONSE[36] __attribute__((aligned(16))) = {
+const uint8_t INQUIRY_RESPONSE[36] __attribute__((aligned(2))) = {
     0x00,
     0x00,
     0x04,
@@ -94,7 +94,7 @@ const uint8_t INQUIRY_RESPONSE[36] __attribute__((aligned(16))) = {
     ' ', ' ', ' ', ' ',
 };
 
-const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(16))) = {
+const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(2))) = {
     0x00, 0x00, 0x00,                           // jump
     'A', 'r', 'c', 'a', 'n', 'e', 'N', 'b',     // oem name
     0x00, 0x02,                                 // 512 bytes/sector
@@ -114,10 +114,10 @@ const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(16))) = {
     'F', 'A', 'T', '1', '6', ' ', ' ', ' ',     // fs type
 };
 
-const uint8_t INFO_UF2[] __attribute__((aligned(16))) = "asdfasdfasdfTODO";
-const uint8_t INDEX_HTM[] __attribute__((aligned(16))) = "fdsafdsaTODO22222222";
+const uint8_t INFO_UF2[70] __attribute__((aligned(2))) = "UF2 Bootloader v0.0.0\nModel: CH32V Generic\nBoard-ID: CH32Vxxx-Generic\n";
+const uint8_t INDEX_HTM[] __attribute__((aligned(2))) = "fdsafdsaTODO22222222";
 
-const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(16))) = {
+const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
     'C', 'H', '3', '2', 'V', ' ', 'U', 'F', '2', ' ', ' ',      // name
     0x08,                                                       // attributes (volume label)
     0x00, 0x00,                                                 // reserved
@@ -235,8 +235,11 @@ __attribute__((always_inline)) static inline void synthesize_block(uint32_t bloc
         for (int i = 16; i < 32; i++)
             USB_EP1_IN(i * 2) = 0;
     } else if (block == 66 && piece == 0) {
-        for (int i = 0; i < (sizeof(INFO_UF2) + 1 / 2); i++)
+        for (int i = 0; i < 32; i++)
             USB_EP1_IN(i * 2) = ((uint16_t*)INFO_UF2)[i];
+    } else if (block == 66 && piece == 1) {
+        for (int i = 0; i < (sizeof(INFO_UF2) - 64 + 1 / 2); i++)
+            USB_EP1_IN(i * 2) = ((uint16_t*)INFO_UF2)[32 + i];
         for (int i = (sizeof(INFO_UF2) + 1 / 2); i < 32; i++)
             USB_EP1_IN(i * 2) = 0;
     } else if (block == 67 && piece == 0) {
