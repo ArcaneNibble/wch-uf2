@@ -119,6 +119,10 @@ const uint8_t HEXLUT[16] = "0123456789ABCDEF";
 #define STATE_GET_STR_SERIAL    0x02
 #define STATE_CTRL_SIMPLE_IN    0x03
 
+#define STATE_WANT_CBW          0x00
+#define STATE_SENT_CSW          0x01
+#define STATE_SENT_DATA_IN      0x02
+
 __attribute__((always_inline)) static inline void set_ep_mode(uint32_t epidx, uint32_t epaddr, uint32_t eptype, uint32_t stat_rx, uint32_t stat_tx, uint32_t xtra, int clear_dtog) {
     uint32_t val = R16_USBD_EPR(epidx);
     uint32_t cur_stats;
@@ -169,6 +173,12 @@ __attribute__((naked)) int main(void) {
     uint32_t active_config = 0;
     const uint8_t *outputting_desc = 0;
     uint32_t outputting_desc_sz = 0;
+
+    // bits [31:24] = additional sense code
+    // bits [23:20] = sense key
+    // bits [7:0] = state
+    uint32_t msc_state = STATE_WANT_CBW;
+    uint32_t dCSWTag = 0;
 
     while (1) {
         uint32_t usb_int_status = R16_USBD_ISTR;
@@ -265,6 +275,7 @@ __attribute__((naked)) int main(void) {
                             if (wValue) {
                                 // activate, allow OUT
                                 set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 1);
+                                msc_state = STATE_WANT_CBW;
                             } else {
                                 // deactivate
                                 set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_DISABLED, USB_STAT_DISABLED, 0, 0);
@@ -352,10 +363,69 @@ __attribute__((naked)) int main(void) {
                 }
             } else if ((ep_status & (1 << 15)) && (epidx == 1)) {
                 // ep 1 out
-                while (1) { asm volatile("nop"); }
+                switch (msc_state & 0xff) {
+                    case STATE_WANT_CBW:
+                        if ((USB_DESCS[1].count_rx & 0x3f) != 0x1f || USB_EP1_OUT(0) != 0x5355 || USB_EP1_OUT(2) != 0x4342) {
+                            set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
+                        } else {
+                            dCSWTag = USB_EP1_OUT(4) | (USB_EP1_OUT(6) << 16);
+                            uint32_t dCBWDataTransferLength = USB_EP1_OUT(8) | (USB_EP1_OUT(10) << 16);
+                            uint32_t bmCBWFlags = USB_EP1_OUT(12) & 0xff;
+                            uint32_t operation_code = USB_EP1_OUT(14) >> 8;
+
+                            switch (operation_code) {
+                                case 0x03:
+                                    // request sense
+                                    USB_EP1_IN(0) = 0x0070;
+                                    USB_EP1_IN(2) = (msc_state >> 20) & 0xf;
+                                    USB_EP1_IN(4) = 0;
+                                    USB_EP1_IN(6) = 0;
+                                    USB_EP1_IN(8) = 0;
+                                    USB_EP1_IN(10) = 0;
+                                    USB_EP1_IN(12) = (msc_state >> 24) & 0xff;
+                                    USB_EP1_IN(14) = 0;
+                                    USB_EP1_IN(16) = 0;
+                                    USB_DESCS[1].count_tx = 18;
+                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    msc_state = STATE_SENT_DATA_IN;
+                                    break;
+                                default:
+                                    // illegal command
+                                    USB_EP1_IN(0) = 0x5355;
+                                    USB_EP1_IN(2) = 0x5342;
+                                    USB_EP1_IN(4) = dCSWTag;
+                                    USB_EP1_IN(6) = dCSWTag >> 16;
+                                    USB_EP1_IN(8) = dCBWDataTransferLength;
+                                    USB_EP1_IN(10) = dCBWDataTransferLength >> 16;
+                                    USB_EP1_IN(12) = 1;
+                                    USB_DESCS[1].count_tx = 13;
+                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    msc_state = STATE_SENT_CSW | (5 << 20);
+                                    break;
+                            }
+                        }
+                        break;
+                }
             } else if ((ep_status & (1 << 7)) && (epidx == 1)) {
                 // ep 1 in
-                while (1) { asm volatile("nop"); }
+                switch (msc_state & 0xff) {
+                    case STATE_SENT_CSW:
+                        set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
+                        msc_state = (msc_state & 0xffffff00) | STATE_WANT_CBW;
+                        break;
+                    case STATE_SENT_DATA_IN:
+                        USB_EP1_IN(0) = 0x5355;
+                        USB_EP1_IN(2) = 0x5342;
+                        USB_EP1_IN(4) = dCSWTag;
+                        USB_EP1_IN(6) = dCSWTag >> 16;
+                        USB_EP1_IN(8) = 0;
+                        USB_EP1_IN(10) = 0;
+                        USB_EP1_IN(12) = 0;
+                        USB_DESCS[1].count_tx = 13;
+                        set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                        msc_state = STATE_SENT_CSW;
+                        break;
+                }
             }
         }
         R16_USBD_ISTR = 0;
