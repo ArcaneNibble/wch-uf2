@@ -136,6 +136,8 @@ const uint8_t INQUIRY_RESPONSE[36] __attribute__((aligned(16))) = {
 #define STATE_WANT_CBW          0x00
 #define STATE_SENT_CSW          0x01
 #define STATE_SENT_DATA_IN      0x02
+// state[10:8] = sector fragment
+#define STATE_SEND_MORE_READ    0x03
 
 __attribute__((always_inline)) static inline void set_ep_mode(uint32_t epidx, uint32_t epaddr, uint32_t eptype, uint32_t stat_rx, uint32_t stat_tx, uint32_t xtra, int clear_dtog) {
     uint32_t val = R16_USBD_EPR(epidx);
@@ -152,6 +154,21 @@ __attribute__((always_inline)) static inline uint32_t min(uint32_t a, uint32_t b
     if (a <= b)
         return a;
     return b;
+}
+
+__attribute__((always_inline)) static inline void synthesize_block(uint32_t block, uint32_t piece) {
+    if (piece == 0) {
+        USB_EP1_IN(0) = block;
+        USB_EP1_IN(2) = block >> 16;
+        for (int i = 2; i < 32; i++)
+            USB_EP1_IN(i * 2) = 0;
+    } else {
+        for (int i = 0; i < 32; i++)
+            USB_EP1_IN(i * 2) = 0;
+    }
+
+    USB_DESCS[1].count_tx = 64;
+    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
 }
 
 __attribute__((naked)) int main(void) {
@@ -193,6 +210,9 @@ __attribute__((naked)) int main(void) {
     // bits [7:0] = state
     uint32_t msc_state = STATE_WANT_CBW;
     uint32_t dCSWTag = 0;
+    // [31:0] = current lba
+    // [15:0] = blocks left
+    uint32_t scsi_xfer_lba_blocks = 0;
 
     while (1) {
         uint32_t usb_int_status = R16_USBD_ISTR;
@@ -388,6 +408,19 @@ __attribute__((naked)) int main(void) {
                             uint32_t operation_code = USB_EP1_OUT(14) >> 8;
 
                             switch (operation_code) {
+                                case 0x00:
+                                    // test unit ready
+                                    USB_EP1_IN(0) = 0x5355;
+                                    USB_EP1_IN(2) = 0x5342;
+                                    USB_EP1_IN(4) = dCSWTag;
+                                    USB_EP1_IN(6) = dCSWTag >> 16;
+                                    USB_EP1_IN(8) = 0;
+                                    USB_EP1_IN(10) = 0;
+                                    USB_EP1_IN(12) = 0;
+                                    USB_DESCS[1].count_tx = 13;
+                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    msc_state = STATE_SENT_CSW;
+                                    break;
                                 case 0x03:
                                     // request sense
                                     USB_EP1_IN(0) = 0x0070;
@@ -414,9 +447,63 @@ __attribute__((naked)) int main(void) {
                                         msc_state = STATE_SENT_DATA_IN;
                                         break;
                                     }
-                                    // fall through
+                                    msc_state = STATE_SENT_CSW | (5 << 20) | (0x24 << 24);
+                                    goto error_csw;
+                                case 0x25:
+                                    // READ CAPACITY (10)
+                                    // xxx don't bother checking the silly fields
+                                    USB_EP1_IN(0) = 0x0000;     // 8 MiB
+                                    USB_EP1_IN(2) = 0xff3f;
+                                    USB_EP1_IN(4) = 0x0000;     // 512 byte sectors
+                                    USB_EP1_IN(6) = 0x0002;
+                                    USB_DESCS[1].count_tx = 8;
+                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    msc_state = STATE_SENT_DATA_IN;
+                                    break;
+                                case 0x28:
+                                    {
+                                        // READ (10)
+                                        // xxx also don't bother checking the flags
+                                        // @ 16: flags lba3
+                                        // @ 18: lba2 lba1
+                                        // @ 20: lba0 group
+                                        // @ 22: len1 len0
+                                        uint32_t lba = (USB_EP1_OUT(16) << 16) & 0xff000000;
+                                        uint32_t tmp = USB_EP1_OUT(18);
+                                        lba |= (tmp & 0xff) << 24;
+                                        lba |= (tmp & 0xff00);
+                                        tmp = USB_EP1_OUT(20);
+                                        lba |= (tmp & 0xff);
+                                        tmp = USB_EP1_OUT(22);
+                                        uint32_t blocks = (tmp >> 8) | ((tmp & 0xff) << 8);
+
+                                        if (blocks > 0x4000 || lba >= 0x4000 || (blocks + lba) > 0x4000) {
+                                            msc_state = STATE_SENT_CSW | (5 << 20) | (0x24 << 24);
+                                            goto error_csw;
+                                        }
+
+                                        if (blocks == 0) {
+                                            USB_EP1_IN(0) = 0x5355;
+                                            USB_EP1_IN(2) = 0x5342;
+                                            USB_EP1_IN(4) = dCSWTag;
+                                            USB_EP1_IN(6) = dCSWTag >> 16;
+                                            USB_EP1_IN(8) = 0;
+                                            USB_EP1_IN(10) = 0;
+                                            USB_EP1_IN(12) = 0;
+                                            USB_DESCS[1].count_tx = 13;
+                                            set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                            msc_state = STATE_SENT_CSW;
+                                        }
+
+                                        synthesize_block(lba, 0);
+                                        scsi_xfer_lba_blocks = (lba << 16) | blocks;
+                                        msc_state = STATE_SEND_MORE_READ;
+                                        break;
+                                    }
                                 default:
                                     // illegal command
+                                    msc_state = STATE_SENT_CSW | (5 << 20);
+error_csw:
                                     USB_EP1_IN(0) = 0x5355;
                                     USB_EP1_IN(2) = 0x5342;
                                     USB_EP1_IN(4) = dCSWTag;
@@ -426,7 +513,6 @@ __attribute__((naked)) int main(void) {
                                     USB_EP1_IN(12) = 1;
                                     USB_DESCS[1].count_tx = 13;
                                     set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
-                                    msc_state = STATE_SENT_CSW | (5 << 20);
                                     break;
                             }
                         }
@@ -450,6 +536,34 @@ __attribute__((naked)) int main(void) {
                         USB_DESCS[1].count_tx = 13;
                         set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
                         msc_state = STATE_SENT_CSW;
+                        break;
+                    case STATE_SEND_MORE_READ:
+                        uint32_t piece = (msc_state >> 8) & 0b111;
+                        if (piece != 7) {
+                            synthesize_block(scsi_xfer_lba_blocks >> 16, piece + 1);
+                            msc_state += 0x100;
+                        } else {
+                            uint32_t lba = scsi_xfer_lba_blocks >> 16;
+                            uint32_t blocks_left = scsi_xfer_lba_blocks & 0xffff;
+                            blocks_left--;
+                            if (blocks_left == 0) {
+                                USB_EP1_IN(0) = 0x5355;
+                                USB_EP1_IN(2) = 0x5342;
+                                USB_EP1_IN(4) = dCSWTag;
+                                USB_EP1_IN(6) = dCSWTag >> 16;
+                                USB_EP1_IN(8) = 0;
+                                USB_EP1_IN(10) = 0;
+                                USB_EP1_IN(12) = 0;
+                                USB_DESCS[1].count_tx = 13;
+                                set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                msc_state = STATE_SENT_CSW;
+                            } else {
+                                lba++;
+                                synthesize_block(lba, 0);
+                                scsi_xfer_lba_blocks = (lba << 16) | blocks_left;
+                                msc_state = STATE_SEND_MORE_READ;
+                            }
+                        }
                         break;
                 }
             }
