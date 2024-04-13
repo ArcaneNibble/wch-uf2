@@ -196,7 +196,7 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
 
 #define R32_EXTEN_CTR       (*(volatile uint32_t*)0x40023800)
 
-#define PFIC_SCTLR          (*(volatile uint32_t*)0xE000ED10)
+#define PFIC_CFGR           (*(volatile uint32_t*)0xE000E048)
 
 // state[7:0] = addr
 #define STATE_SET_ADDR          0x00
@@ -810,8 +810,12 @@ error_csw:
                         break;
                     case STATE_SENT_CSW_REBOOT:
                         // todo reboot into ram
+                        for (int i = 0; i < 1000000; i++)
+                            asm volatile("");
+                        R16_USBD_CNTR = 0b11;
                         R32_EXTEN_CTR &= ~(1 << 1);
-                        PFIC_SCTLR = 0x80000000;
+                        asm volatile("csrw mepc, zero\n");
+                        PFIC_CFGR = 0xbeef0080;
                         while (1) { asm volatile(""); }
                         break;
                     case STATE_SENT_DATA_IN:
