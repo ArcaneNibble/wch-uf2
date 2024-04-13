@@ -41,6 +41,17 @@ const uint8_t USB_DEV_DESC[18] __attribute__((aligned(16))) = {
     1,              // bNumConfigurations
 };
 
+const uint8_t USB_CONF_DESC[9] __attribute__((aligned(16))) = {
+    9,              // bLength
+    2,              // bDescriptorType
+    0x09, 0x00,     // wTotalLength
+    0,              // bNumInterfaces
+    1,              // bConfigurationValue
+    0,              // iConfiguration
+    0x80,           // bmAttributes
+    250,            // bMaxPower
+};
+
 #define USB_DESCS           ((volatile USBD_descriptor*)0x40006000)
 #define USB_EP0_OUT(offs)   (*(volatile uint32_t *)(0x40006020 + 2 * (offs)))
 #define USB_EP0_IN(offs)    (*(volatile uint32_t *)(0x40006030 + 2 * (offs)))
@@ -67,7 +78,8 @@ const uint8_t USB_DEV_DESC[18] __attribute__((aligned(16))) = {
 // state[15:8] = byte pos
 // state[7:0] = bytes left
 #define STATE_GET_DEV_DESC      0x01
-#define STATE_CTRL_STATUS_OUT   0x02
+#define STATE_GET_CONF_DESC     0x02
+#define STATE_CTRL_STATUS_OUT   0x03
 
 int main(void) {
     // PLL setup: system clock 96 MHz
@@ -134,9 +146,21 @@ int main(void) {
                                 master_state = (STATE_GET_DEV_DESC << 24) | (8 << 8) | (bytes - 8);
                             }
                             R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b01 << 4);  // STALL for OUT, ACK for IN
+                        } else if (wValue == 0x0200) {
+                            for (int i = 0; i < 8; i+=2)
+                                USB_EP0_IN(i) = *((uint16_t*)(&USB_CONF_DESC[i]));
+                            uint32_t bytes = USB_EP0_OUT(6);
+                            if (bytes < 8) {
+                                USB_DESCS[0].count_tx = bytes;
+                                master_state = (STATE_GET_CONF_DESC << 24);
+                            } else {
+                                USB_DESCS[0].count_tx = 8;
+                                master_state = (STATE_GET_CONF_DESC << 24) | (8 << 8) | (bytes - 8);
+                            }
+                            R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b01 << 4);  // STALL for OUT, ACK for IN
                         } else {
                             // bad descriptor
-                            while (1) {}
+                            R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b11 << 4);  // STALL for both
                         }
                     } else {
                         // unknown
@@ -159,29 +183,56 @@ int main(void) {
                         master_state = 0;
                         R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 4);    // STALL if another IN
                         break;
-                    case STATE_GET_DEV_DESC:
-                        uint32_t byte_pos = (master_state >> 8) & 0xff;
-                        uint32_t bytes_left = master_state & 0xff;
-                        if (bytes_left == 0) {
-                            // ready for OUT status ACK, no more IN
-                            master_state = (STATE_CTRL_STATUS_OUT << 24);
-                            R16_USBD_EPR(0) = (0b01 << 9) | (0b10 << 12) | (1 << 8) | (0b11 << 4);
-                        } else {
-                            uint32_t bytes = bytes_left;
-                            if (bytes > 8) bytes = 8;
-                            if (byte_pos + bytes > sizeof(USB_DEV_DESC))
-                                bytes = sizeof(USB_DEV_DESC) - byte_pos;
-                            for (int i = 0; i < bytes; i+=2)
-                                USB_EP0_IN(i) = *((uint16_t*)(&USB_DEV_DESC[byte_pos + i]));
-                            if (bytes < 8) {
-                                USB_DESCS[0].count_tx = bytes;
-                                master_state = (STATE_GET_DEV_DESC << 24);
+                    case STATE_GET_DEV_DESC: {
+                            uint32_t byte_pos = (master_state >> 8) & 0xff;
+                            uint32_t bytes_left = master_state & 0xff;
+                            if (bytes_left == 0) {
+                                // ready for OUT status ACK, no more IN
+                                master_state = (STATE_CTRL_STATUS_OUT << 24);
+                                R16_USBD_EPR(0) = (0b01 << 9) | (0b10 << 12) | (1 << 8) | (0b11 << 4);
                             } else {
-                                USB_DESCS[0].count_tx = 8;
-                                master_state = (STATE_GET_DEV_DESC << 24) | ((byte_pos + 8) << 8) | (bytes_left - 8);
+                                uint32_t bytes = bytes_left;
+                                if (bytes > 8) bytes = 8;
+                                if (byte_pos + bytes > sizeof(USB_DEV_DESC))
+                                    bytes = sizeof(USB_DEV_DESC) - byte_pos;
+                                for (int i = 0; i < bytes; i+=2)
+                                    USB_EP0_IN(i) = *((uint16_t*)(&USB_DEV_DESC[byte_pos + i]));
+                                if (bytes < 8) {
+                                    USB_DESCS[0].count_tx = bytes;
+                                    master_state = (STATE_GET_DEV_DESC << 24);
+                                } else {
+                                    USB_DESCS[0].count_tx = 8;
+                                    master_state = (STATE_GET_DEV_DESC << 24) | ((byte_pos + 8) << 8) | (bytes_left - 8);
+                                }
+                                R16_USBD_EPR(0) = (0b01 << 9) | (0b01 << 4);  // ACK for IN
                             }
-                            R16_USBD_EPR(0) = (0b01 << 9) | (0b01 << 4);  // ACK for IN
                         }
+                        break;
+                    case STATE_GET_CONF_DESC: {
+                            uint32_t byte_pos = (master_state >> 8) & 0xff;
+                            uint32_t bytes_left = master_state & 0xff;
+                            if (bytes_left == 0) {
+                                // ready for OUT status ACK, no more IN
+                                master_state = (STATE_CTRL_STATUS_OUT << 24);
+                                R16_USBD_EPR(0) = (0b01 << 9) | (0b10 << 12) | (1 << 8) | (0b11 << 4);
+                            } else {
+                                uint32_t bytes = bytes_left;
+                                if (bytes > 8) bytes = 8;
+                                if (byte_pos + bytes > sizeof(USB_CONF_DESC))
+                                    bytes = sizeof(USB_CONF_DESC) - byte_pos;
+                                for (int i = 0; i < bytes; i+=2)
+                                    USB_EP0_IN(i) = *((uint16_t*)(&USB_CONF_DESC[byte_pos + i]));
+                                if (bytes < 8) {
+                                    USB_DESCS[0].count_tx = bytes;
+                                    master_state = (STATE_GET_CONF_DESC << 24);
+                                } else {
+                                    USB_DESCS[0].count_tx = 8;
+                                    master_state = (STATE_GET_CONF_DESC << 24) | ((byte_pos + 8) << 8) | (bytes_left - 8);
+                                }
+                                R16_USBD_EPR(0) = (0b01 << 9) | (0b01 << 4);  // ACK for IN
+                            }
+                        }
+                        break;
                 }
             }
         }
