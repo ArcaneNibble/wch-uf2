@@ -449,6 +449,24 @@ __attribute__((naked)) int main(void) {
                                     }
                                     msc_state = STATE_SENT_CSW | (5 << 20) | (0x24 << 24);
                                     goto error_csw;
+                                case 0x1a:
+                                    // mode sense (6)
+                                    USB_EP1_IN(0) = 0x0003;
+                                    USB_EP1_IN(2) = 0x0000;
+                                    USB_DESCS[1].count_tx = 4;
+                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    msc_state = STATE_SENT_DATA_IN;
+                                    break;
+                                case 0x5a:
+                                    // mode sense (10)
+                                    USB_EP1_IN(0) = 0x0800;
+                                    USB_EP1_IN(2) = 0x0000;
+                                    USB_EP1_IN(4) = 0x0000;
+                                    USB_EP1_IN(6) = 0x0000;
+                                    USB_DESCS[1].count_tx = 8;
+                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    msc_state = STATE_SENT_DATA_IN;
+                                    break;
                                 case 0x25:
                                     // READ CAPACITY (10)
                                     // xxx don't bother checking the silly fields
