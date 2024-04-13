@@ -80,6 +80,20 @@ const uint16_t USB_MANUF[13] = u"\u031aArcaneNibble";
 const uint16_t USB_PRODUCT[15] = u"\u031eCH32V UF2 Boot";
 const uint8_t HEXLUT[16] = "0123456789ABCDEF";
 
+const uint8_t INQUIRY_RESPONSE[36] __attribute__((aligned(16))) = {
+    0x00,
+    0x00,
+    0x04,
+    0x02,
+    0x1F,
+    0x00,
+    0x00,
+    0x00,
+    'A', 'r', 'c', 'a', 'n', 'e', 'N', 'b',
+    'C', 'H', '3', '2', 'V', ' ', 'U', 'F', '2', ' ', 'B', 'o', 'o', 't', ' ', ' ',
+    ' ', ' ', ' ', ' ',
+};
+
 #define ESIG_UNIID(x)       (*(volatile uint8_t*)(0x1FFFF7E8 + (x)))
 // XXX manual claims 96 bits but only 64 bits seem to actually be programmed?
 
@@ -389,6 +403,18 @@ __attribute__((naked)) int main(void) {
                                     set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
                                     msc_state = STATE_SENT_DATA_IN;
                                     break;
+                                case 0x12:
+                                    // inquiry
+                                    if (USB_EP1_OUT(16) == 0) {
+                                        for (int i = 0; i < 36 / 2; i++) {
+                                            USB_EP1_IN(i * 2) = ((uint16_t*)INQUIRY_RESPONSE)[i];
+                                        }
+                                        USB_DESCS[1].count_tx = 36;
+                                        set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                        msc_state = STATE_SENT_DATA_IN;
+                                        break;
+                                    }
+                                    // fall through
                                 default:
                                     // illegal command
                                     USB_EP1_IN(0) = 0x5355;
