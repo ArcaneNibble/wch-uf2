@@ -95,7 +95,7 @@ const uint8_t INQUIRY_RESPONSE[36] __attribute__((aligned(2))) = {
 };
 
 const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(2))) = {
-    0x00, 0x00, 0x00,                           // jump
+    0xeb, 0x3c, 0x90,                           // jump
     'A', 'r', 'c', 'a', 'n', 'e', 'N', 'b',     // oem name
     0x00, 0x02,                                 // 512 bytes/sector
     0x01,                                       // 1 sector/cluster
@@ -220,6 +220,10 @@ __attribute__((always_inline)) static inline void synthesize_block(uint32_t bloc
         } else {
             for (int i = 0; i < 32; i++)
                 USB_EP1_IN(i * 2) = 0;
+        }
+
+        if (piece == 3) {
+            USB_EP1_IN(62) = 0xaa55;
         }
     } else if (block == 1 && piece == 0) {
         USB_EP1_IN(0) = 0xfff8;
