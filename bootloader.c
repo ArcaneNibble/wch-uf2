@@ -21,8 +21,8 @@ typedef struct USBD_descriptor {
 //      EP 1 IN (64 bytes)
 // +0x140
 //      <unused>
-// +0x1f0
-//      stash copy of blockNo, numBlocks
+// +0x1e0
+//      ram for stashing data
 // +0x200
 //      <256-byte flash page buffer>
 
@@ -159,8 +159,10 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
 #define USB_EP1_OUT(offs)   (*(volatile uint32_t *)(0x40006040 + 2 * (offs)))
 #define USB_EP1_IN(offs)    (*(volatile uint32_t *)(0x400060C0 + 2 * (offs)))
 
-#define USB_UF2_FIELDS_STASH(offs)  (*(volatile uint32_t *)(0x400061f0 + 2 * (offs)))
-#define USB_SECTOR_STASH(offs)      (*(volatile uint32_t *)(0x40006200 + 2 * (offs)))
+#define USB_UF2_FIELDS_STASH(offs)  (*(uint32_t *)(0x400061e0 + 2 * (offs)))
+#define ACTIVE_CONFIG       USB_UF2_FIELDS_STASH(12)
+#define UF2_BLOCKS_LEFT     USB_UF2_FIELDS_STASH(14)
+#define USB_SECTOR_STASH(offs)      (*(uint32_t *)(0x40006200 + 2 * (offs)))
 
 #define USB_EPTYPE_BULK     0b00
 #define USB_EPTYPE_CONTROL  0b01
@@ -168,6 +170,8 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
 #define USB_STAT_DISABLED   0b00
 #define USB_STAT_STALL      0b01
 #define USB_STAT_ACK        0b11
+
+#define R16_BKP_DATAR10     (*(volatile uint32_t*)0x40006C28)
 
 #define R32_RCC_CTLR        (*(volatile uint32_t*)0x40021000)
 #define R32_RCC_CFGR0       (*(volatile uint32_t*)0x40021004)
@@ -184,6 +188,8 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
 
 #define R32_EXTEN_CTR       (*(volatile uint32_t*)0x40023800)
 
+#define PFIC_SCTLR          (*(volatile uint32_t*)0xE000ED10)
+
 // state[7:0] = addr
 #define STATE_SET_ADDR          0x00
 // state[15:8] = byte pos
@@ -194,11 +200,13 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
 
 #define STATE_WANT_CBW          0x00
 #define STATE_SENT_CSW          0x01
-#define STATE_SENT_DATA_IN      0x02
+#define STATE_SENT_CSW_REBOOT   0x02
+#define STATE_SENT_DATA_IN      0x03
+// state[10:8] = sector fragment
+#define STATE_SEND_MORE_READ    0x04
 // state[12] = uf2 good so far
 // state[10:8] = sector fragment
-#define STATE_SEND_MORE_READ    0x03
-#define STATE_WAITING_FOR_WRITE 0x04
+#define STATE_WAITING_FOR_WRITE 0x05
 
 __attribute__((always_inline)) static inline void set_ep_mode(uint32_t epidx, uint32_t epaddr, uint32_t eptype, uint32_t stat_rx, uint32_t stat_tx, uint32_t xtra, int clear_dtog) {
     uint32_t val = R16_USBD_EPR(epidx);
@@ -270,6 +278,8 @@ __attribute__((always_inline)) static inline void synthesize_block(uint32_t bloc
 }
 
 __attribute__((naked)) int main(void) {
+    R16_BKP_DATAR10 = 0;
+
     // PLL setup: system clock 96 MHz
     R32_EXTEN_CTR |= (1 << 4);  // sneaky div2
     R32_RCC_CFGR0 = (R32_RCC_CFGR0 & ~0xff0000) | (0b01101000 << 16);
@@ -299,7 +309,7 @@ __attribute__((naked)) int main(void) {
     R32_EXTEN_CTR |= (1 << 1);
 
     uint32_t ctrl_xfer_state = 0;
-    uint32_t active_config = 0;
+    ACTIVE_CONFIG = 0;
     const uint8_t *outputting_desc = 0;
     uint32_t outputting_desc_sz = 0;
 
@@ -312,9 +322,10 @@ __attribute__((naked)) int main(void) {
     // [31:0] = current lba
     // [15:0] = blocks left
     // when writing:
-    // [31:0] = num uf2 blocks left
     // [15:0] = blocks left
     uint32_t scsi_xfer_lba_blocks = 0;
+
+    UF2_BLOCKS_LEFT = 0;
 
     while (1) {
         uint32_t usb_int_status = R16_USBD_ISTR;
@@ -397,7 +408,7 @@ __attribute__((naked)) int main(void) {
                         }
                     } else if (bRequest_bmRequestType == 0x0880) {
                         // GET_CONFIGURATION
-                        USB_EP0_IN(0) = active_config;
+                        USB_EP0_IN(0) = ACTIVE_CONFIG;
                         USB_DESCS[0].count_tx = min(1, wLength);
                         ctrl_xfer_state = (STATE_CTRL_SIMPLE_IN << 24);
                         set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
@@ -405,7 +416,7 @@ __attribute__((naked)) int main(void) {
                         // SET_CONFIGURATION
                         uint32_t wValue = USB_EP0_OUT(2);
                         if (wValue == 0 || wValue == 1) {
-                            active_config = wValue;
+                            ACTIVE_CONFIG = wValue;
                             USB_DESCS[0].count_tx = 0;
                             set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
                             if (wValue) {
@@ -698,13 +709,13 @@ error_csw:
                                         USB_UF2_FIELDS_STASH(2) = USB_EP1_OUT(22);
                                         USB_UF2_FIELDS_STASH(4) = USB_EP1_OUT(24);
                                         USB_UF2_FIELDS_STASH(6) = USB_EP1_OUT(26);
+                                        USB_UF2_FIELDS_STASH(8) = USB_EP1_OUT(12);
+                                        USB_UF2_FIELDS_STASH(10) = USB_EP1_OUT(14);
 
                                         for (int i = 0; i < 16; i++)
                                             USB_SECTOR_STASH(i * 2) = USB_EP1_OUT(32 + i * 2);
 
                                         msc_state += 0x1000;
-                                // uint32_t blocknum = USB_EP1_OUT(20) | (USB_EP1_OUT(22) << 16);
-                                // uint32_t totblocks = USB_EP1_OUT(24) | (USB_EP1_OUT(26) << 16);
                                     }
                                 }
                             }
@@ -721,14 +732,19 @@ error_csw:
                             msc_state += 0x100;
                         } else {
                             // full sector is done
-                            uint32_t uf2_blocks_left = scsi_xfer_lba_blocks >> 16;
-
                             if (msc_state & 0x1000) {
                                 if (USB_EP1_OUT(60) == 0x6F30 && USB_EP1_OUT(62) == 0x0AB1) {
                                     // uf2 all magics are good!
                                     uint32_t blocknum = USB_UF2_FIELDS_STASH(0) | (USB_UF2_FIELDS_STASH(2) << 16);
                                     uint32_t totblocks = USB_UF2_FIELDS_STASH(4) | (USB_UF2_FIELDS_STASH(6) << 16);
-                                    while (1) asm volatile("nop");  // todo
+                                    uint32_t address = USB_UF2_FIELDS_STASH(8) | (USB_UF2_FIELDS_STASH(10) << 16);
+
+                                    if (UF2_BLOCKS_LEFT == 0)
+                                        UF2_BLOCKS_LEFT = (totblocks - 1) | 0x8000;
+                                    else
+                                        UF2_BLOCKS_LEFT--;
+
+                                    // todo flash the file
                                 }
                             }
 
@@ -744,9 +760,12 @@ error_csw:
                                 USB_EP1_IN(12) = 0;
                                 USB_DESCS[1].count_tx = 13;
                                 set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
-                                msc_state = STATE_SENT_CSW;
+                                if (UF2_BLOCKS_LEFT == 0x8000)
+                                    msc_state = STATE_SENT_CSW_REBOOT;
+                                else
+                                    msc_state = STATE_SENT_CSW;
                             } else {
-                                scsi_xfer_lba_blocks = (uf2_blocks_left << 16) | blocks_left;
+                                scsi_xfer_lba_blocks = blocks_left;
                                 set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
                                 msc_state = STATE_WAITING_FOR_WRITE;
                             }
@@ -759,6 +778,14 @@ error_csw:
                     case STATE_SENT_CSW:
                         set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
                         msc_state = (msc_state & 0xffffff00) | STATE_WANT_CBW;
+                        break;
+                    case STATE_SENT_CSW_REBOOT:
+                        // todo reboot into ram
+                        for (int i = 0; i < 1000000; i++)
+                            asm volatile("");
+                        R32_EXTEN_CTR &= ~(1 << 1);
+                        PFIC_SCTLR = 0x80000000;
+                        while (1) { asm volatile(""); }
                         break;
                     case STATE_SENT_DATA_IN:
                         USB_EP1_IN(0) = 0x5355;
