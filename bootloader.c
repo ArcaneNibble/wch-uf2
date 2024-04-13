@@ -124,7 +124,6 @@ int main(void) {
     uint32_t master_state = 0;
     uint32_t active_config = 0;
 
-    // R32_GPIOA_CFGLR = (R32_GPIOA_CFGLR & ~0xf) | (0b0010 << 0);
     while (1) {
         uint32_t usb_int_status = R16_USBD_ISTR;
         if (usb_int_status & (1 << 10)) {
