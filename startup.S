@@ -45,7 +45,7 @@ _start:
     la a3, R16_BKP_DATAR10
     lhu a1, (a3)
     la a2, BOOT_MAGIC_APP_IMMEDIATELY
-    beq a1, a2, _enter_application_code
+    beq a1, a2, _enter_application_code_magic
     la a2, BOOT_MAGIC_BOOTLOADER
     beq a1, a2, _enter_bootloader
 
@@ -69,6 +69,8 @@ _start:
     sh zero, (a3)
     // If the delay expires, boot the application after all
 
+_enter_application_code_magic:
+    sh zero, (a3)
 _enter_application_code:
     // Clear all of these enables that we had set
     la a0, R32_PWR_CTLR

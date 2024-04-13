@@ -196,6 +196,10 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
 
 #define R32_EXTEN_CTR       (*(volatile uint32_t*)0x40023800)
 
+#define STK_CTLR            (*(volatile uint32_t*)0xE000F000)
+#define STK_SR              (*(volatile uint32_t*)0xE000F004)
+#define STK_CMPLR           (*(volatile uint32_t*)0xE000F010)
+
 #define PFIC_CFGR           (*(volatile uint32_t*)0xE000E048)
 
 // state[7:0] = addr
@@ -286,9 +290,8 @@ __attribute__((always_inline)) static inline void synthesize_block(uint32_t bloc
 }
 
 __attribute__((naked)) int main(void) {
-    // clear all reset causes
+    // Don't reenter bootloader again
     R16_BKP_DATAR10 = 0;
-    R32_RCC_RSTSCKR = 1 << 24;
 
     // PLL setup: system clock 96 MHz
     R32_EXTEN_CTR |= (1 << 4);  // sneaky div2
@@ -810,11 +813,16 @@ error_csw:
                         break;
                     case STATE_SENT_CSW_REBOOT:
                         // todo reboot into ram
-                        for (int i = 0; i < 1000000; i++)
-                            asm volatile("");
+                        STK_CMPLR = (50 /* ms */ * 12000 /* assume 96 MHz system clock, div8 */);
+                        STK_CTLR = 0b111000;
+                        STK_CTLR = 0b111001;
+                        while (!(STK_SR & 1)) {}
+                        STK_CTLR = 0;
+                        STK_SR = 0;
                         R16_USBD_CNTR = 0b11;
                         R32_EXTEN_CTR &= ~(1 << 1);
-                        asm volatile("csrw mepc, zero\n");
+                        // wtf why does this work and the other stuff doesn't?
+                        R16_BKP_DATAR10 = 0x4170;
                         PFIC_CFGR = 0xbeef0080;
                         while (1) { asm volatile(""); }
                         break;
