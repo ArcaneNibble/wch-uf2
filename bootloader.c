@@ -114,6 +114,9 @@ const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(16))) = {
     'F', 'A', 'T', '1', '6', ' ', ' ', ' ',     // fs type
 };
 
+const uint8_t INFO_UF2[] __attribute__((aligned(16))) = "asdfasdfasdfTODO";
+const uint8_t INDEX_HTM[] __attribute__((aligned(16))) = "fdsafdsaTODO22222222";
+
 const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(16))) = {
     'C', 'H', '3', '2', 'V', ' ', 'U', 'F', '2', ' ', ' ',      // name
     0x08,                                                       // attributes (volume label)
@@ -130,8 +133,8 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(16))) = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00,                         // timestamps
     0x00, 0x00,                                                 // reserved
     0x00, 0x00, 0x00, 0x00,                                     // timestamps
-    0x00, 0x00,                                                 // start cluster
-    0x00, 0x00, 0x00, 0x00,                                     // file size
+    0x02, 0x00,                                                 // start cluster
+    sizeof(INFO_UF2), sizeof(INFO_UF2) >> 8, sizeof(INFO_UF2) >> 16, sizeof(INFO_UF2) >> 24,
 
     'I', 'N', 'D', 'E', 'X', ' ', ' ', ' ', 'H', 'T', 'M',      // name
     0x01,                                                       // attributes (RO)
@@ -139,8 +142,8 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(16))) = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00,                         // timestamps
     0x00, 0x00,                                                 // reserved
     0x00, 0x00, 0x00, 0x00,                                     // timestamps
-    0x00, 0x00,                                                 // start cluster
-    0x00, 0x00, 0x00, 0x00,                                     // file size
+    0x03, 0x00,                                                 // start cluster
+    sizeof(INDEX_HTM), sizeof(INDEX_HTM) >> 8, sizeof(INDEX_HTM) >> 16, sizeof(INDEX_HTM) >> 24,
 };
 
 #define ESIG_UNIID(x)       (*(volatile uint8_t*)(0x1FFFF7E8 + (x)))
@@ -219,7 +222,9 @@ __attribute__((always_inline)) static inline void synthesize_block(uint32_t bloc
     } else if (block == 1 && piece == 0) {
         USB_EP1_IN(0) = 0xfff8;
         USB_EP1_IN(2) = 0xffff;
-        for (int i = 2; i < 32; i++)
+        USB_EP1_IN(4) = 0xfff8;
+        USB_EP1_IN(6) = 0xfff8;
+        for (int i = 4; i < 32; i++)
             USB_EP1_IN(i * 2) = 0;
     } else if (block == 65 && piece == 0) {
         for (int i = 0; i < 32; i++)
@@ -228,6 +233,16 @@ __attribute__((always_inline)) static inline void synthesize_block(uint32_t bloc
         for (int i = 0; i < 16; i++)
             USB_EP1_IN(i * 2) = ((uint16_t*)ROOT_DIR)[32+ i];
         for (int i = 16; i < 32; i++)
+            USB_EP1_IN(i * 2) = 0;
+    } else if (block == 66 && piece == 0) {
+        for (int i = 0; i < (sizeof(INFO_UF2) + 1 / 2); i++)
+            USB_EP1_IN(i * 2) = ((uint16_t*)INFO_UF2)[i];
+        for (int i = (sizeof(INFO_UF2) + 1 / 2); i < 32; i++)
+            USB_EP1_IN(i * 2) = 0;
+    } else if (block == 67 && piece == 0) {
+        for (int i = 0; i < (sizeof(INDEX_HTM) + 1 / 2); i++)
+            USB_EP1_IN(i * 2) = ((uint16_t*)INDEX_HTM)[i];
+        for (int i = (sizeof(INDEX_HTM) + 1 / 2); i < 32; i++)
             USB_EP1_IN(i * 2) = 0;
     } else {
         for (int i = 0; i < 32; i++)

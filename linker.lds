@@ -3,7 +3,7 @@ ENTRY( _start )
 MEMORY
 {
     /* Try to squeeze down to this target size */
-    FLASH (rx) : ORIGIN = 0x00000000, LENGTH = 4K
+    FLASH (rx) : ORIGIN = 0x00000000, LENGTH = 8K
     LOL_NO_RAM (rw) : ORIGIN = 0x400060c0, LENGTH = 0
 }
 
