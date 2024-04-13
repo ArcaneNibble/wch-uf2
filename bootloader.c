@@ -92,6 +92,13 @@ const uint8_t USB_CONF_DESC[0x12] __attribute__((aligned(16))) = {
 #define STATE_CTRL_STATUS_OUT   0x03
 #define STATE_CTRL_SIMPLE_IN    0x04
 
+static inline void set_ep_mode(uint8_t ep, uint8_t stat_rx, uint8_t stat_tx, uint16_t xtra) {
+    uint16_t val = R16_USBD_EPR(0);
+    uint8_t cur_stat_rx = (val >> 12) & 0b11;
+    uint8_t cur_stat_tx = (val >> 4) & 0b11;
+    R16_USBD_EPR(0) = (val & 0b0000011000001111) | xtra | ((stat_rx ^ cur_stat_rx) << 12) | ((stat_tx ^ cur_stat_tx) << 4);
+}
+
 int main(void) {
     // PLL setup: system clock 96 MHz
     R32_EXTEN_CTR |= (1 << 4);  // sneaky div2
@@ -142,12 +149,12 @@ int main(void) {
                         USB_EP0_IN(0) = 0;
                         USB_DESCS[0].count_tx = 2;
                         master_state = (STATE_CTRL_SIMPLE_IN << 24);
-                        R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b01 << 4);  // STALL for OUT, ACK for IN
+                        set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
                     } else if (bRequest_bmRequestType == 0x0500) {
                         // SET_ADDRESS
                         master_state = (STATE_SET_ADDR << 24) | USB_EP0_OUT(2);
                         USB_DESCS[0].count_tx = 0;
-                        R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b01 << 4);  // STALL for OUT, ACK for IN
+                        set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
                     } else if (bRequest_bmRequestType == 0x0680) {
                         // GET_DESCRIPTOR
                         uint32_t wValue = USB_EP0_OUT(2);
@@ -162,7 +169,7 @@ int main(void) {
                                 USB_DESCS[0].count_tx = 8;
                                 master_state = (STATE_GET_DEV_DESC << 24) | (8 << 8) | (bytes - 8);
                             }
-                            R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b01 << 4);  // STALL for OUT, ACK for IN
+                            set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
                         } else if (wValue == 0x0200) {
                             for (int i = 0; i < 8; i+=2)
                                 USB_EP0_IN(i) = *((uint16_t*)(&USB_CONF_DESC[i]));
@@ -174,36 +181,36 @@ int main(void) {
                                 USB_DESCS[0].count_tx = 8;
                                 master_state = (STATE_GET_CONF_DESC << 24) | (8 << 8) | (bytes - 8);
                             }
-                            R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b01 << 4);  // STALL for OUT, ACK for IN
+                            set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
                         } else {
                             // bad descriptor
-                            R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b11 << 4);  // STALL for both
+                            set_ep_mode(0, 0b01, 0b01, 0);  // STALL for both
                         }
                     } else if (bRequest_bmRequestType == 0x0880) {
                         // GET_CONFIGURATION
                         USB_EP0_IN(0) = active_config;
                         USB_DESCS[0].count_tx = 1;
                         master_state = (STATE_CTRL_SIMPLE_IN << 24);
-                        R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b01 << 4);  // STALL for OUT, ACK for IN
+                        set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
                     } else if (bRequest_bmRequestType == 0x0900) {
                         // SET_CONFIGURATION
                         uint32_t wValue = USB_EP0_OUT(2);
                         if (wValue == 0 || wValue == 1) {
                             active_config = wValue;
                             USB_DESCS[0].count_tx = 0;
-                            R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b01 << 4);  // STALL for OUT, ACK for IN
+                            set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
                         } else {
-                            R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b11 << 4);  // STALL for both
+                            set_ep_mode(0, 0b01, 0b01, 0);  // STALL for both
                         }
                     } else {
                         // unknown
-                        R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b11 << 4);   // STALL for both
+                        set_ep_mode(0, 0b01, 0b01, 0);  // STALL for both
                     }
                 } else {
                     switch (master_state >> 24) {
                         case STATE_CTRL_STATUS_OUT:
-                            // go back to STALL for OUT
-                            R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12);
+                            // back to stall for everything, expect SETUP
+                            set_ep_mode(0, 0b01, 0b01, 0);  // STALL for both
                             break;
                     }
                 }
@@ -213,15 +220,15 @@ int main(void) {
                     case STATE_SET_ADDR:
                         R16_USBD_DADDR = 0x80 | (master_state & 0x7f);
                         master_state = 0;
-                        R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 4);    // STALL if another IN
+                        // back to stall for everything, expect SETUP
+                        set_ep_mode(0, 0b01, 0b01, 0);  // STALL for both
                         break;
                     case STATE_GET_DEV_DESC: {
                             uint32_t byte_pos = (master_state >> 8) & 0xff;
                             uint32_t bytes_left = master_state & 0xff;
                             if (bytes_left == 0) {
-                                // ready for OUT status ACK, no more IN
                                 master_state = (STATE_CTRL_STATUS_OUT << 24);
-                                R16_USBD_EPR(0) = (0b01 << 9) | (0b10 << 12) | (1 << 8) | (0b11 << 4);
+                                set_ep_mode(0, 0b11, 0b01, 1 << 8);     // ACK for OUT ZLP, STALL for IN
                             } else {
                                 uint32_t bytes = bytes_left;
                                 if (bytes > 8) bytes = 8;
@@ -236,7 +243,7 @@ int main(void) {
                                     USB_DESCS[0].count_tx = 8;
                                     master_state = (STATE_GET_DEV_DESC << 24) | ((byte_pos + 8) << 8) | (bytes_left - 8);
                                 }
-                                R16_USBD_EPR(0) = (0b01 << 9) | (0b01 << 4);  // ACK for IN
+                                set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
                             }
                         }
                         break;
@@ -244,9 +251,8 @@ int main(void) {
                             uint32_t byte_pos = (master_state >> 8) & 0xff;
                             uint32_t bytes_left = master_state & 0xff;
                             if (bytes_left == 0) {
-                                // ready for OUT status ACK, no more IN
                                 master_state = (STATE_CTRL_STATUS_OUT << 24);
-                                R16_USBD_EPR(0) = (0b01 << 9) | (0b10 << 12) | (1 << 8) | (0b11 << 4);
+                                set_ep_mode(0, 0b11, 0b01, 1 << 8);     // ACK for OUT ZLP, STALL for IN
                             } else {
                                 uint32_t bytes = bytes_left;
                                 if (bytes > 8) bytes = 8;
@@ -261,14 +267,13 @@ int main(void) {
                                     USB_DESCS[0].count_tx = 8;
                                     master_state = (STATE_GET_CONF_DESC << 24) | ((byte_pos + 8) << 8) | (bytes_left - 8);
                                 }
-                                R16_USBD_EPR(0) = (0b01 << 9) | (0b01 << 4);  // ACK for IN
+                                set_ep_mode(0, 0b01, 0b11, 0);  // STALL for OUT, ACK for IN
                             }
                         }
                         break;
                     case STATE_CTRL_SIMPLE_IN:
-                        // ready for OUT status ACK, no more IN
                         master_state = (STATE_CTRL_STATUS_OUT << 24);
-                        R16_USBD_EPR(0) = (0b01 << 9) | (0b10 << 12) | (1 << 8) | (0b11 << 4);
+                        set_ep_mode(0, 0b11, 0b01, 1 << 8);     // ACK for OUT ZLP, STALL for IN
                         break;
                 }
             }
