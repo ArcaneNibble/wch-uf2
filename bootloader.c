@@ -92,14 +92,14 @@ const uint8_t USB_CONF_DESC[0x12] __attribute__((aligned(16))) = {
 #define STATE_CTRL_STATUS_OUT   0x03
 #define STATE_CTRL_SIMPLE_IN    0x04
 
-static inline void set_ep_mode(uint8_t ep, uint8_t stat_rx, uint8_t stat_tx, uint16_t xtra) {
+__attribute__((always_inline)) static inline void set_ep_mode(uint8_t ep, uint8_t stat_rx, uint8_t stat_tx, uint16_t xtra) {
     uint16_t val = R16_USBD_EPR(0);
     uint8_t cur_stat_rx = (val >> 12) & 0b11;
     uint8_t cur_stat_tx = (val >> 4) & 0b11;
     R16_USBD_EPR(0) = (val & 0b0000011000001111) | xtra | ((stat_rx ^ cur_stat_rx) << 12) | ((stat_tx ^ cur_stat_tx) << 4);
 }
 
-int main(void) {
+__attribute__((naked)) int main(void) {
     // PLL setup: system clock 96 MHz
     R32_EXTEN_CTR |= (1 << 4);  // sneaky div2
     R32_RCC_CFGR0 = (R32_RCC_CFGR0 & ~0xff0000) | (0b01101000 << 16);
