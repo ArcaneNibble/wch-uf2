@@ -41,15 +41,25 @@ const uint8_t USB_DEV_DESC[18] __attribute__((aligned(16))) = {
     1,              // bNumConfigurations
 };
 
-const uint8_t USB_CONF_DESC[9] __attribute__((aligned(16))) = {
+const uint8_t USB_CONF_DESC[0x12] __attribute__((aligned(16))) = {
     9,              // bLength
     2,              // bDescriptorType
-    0x09, 0x00,     // wTotalLength
-    0,              // bNumInterfaces
+    0x12, 0x00,     // wTotalLength
+    1,              // bNumInterfaces
     1,              // bConfigurationValue
     0,              // iConfiguration
     0x80,           // bmAttributes
     250,            // bMaxPower
+
+    9,              // bLength
+    4,              // bDescriptorType
+    0,              // bInterfaceNumber
+    0,              // bAlternateSetting
+    0,              // bNumEndpoints
+    0xff,           // bInterfaceClass
+    0xff,           // bInterfaceSubClass
+    0xff,           // bInterfaceProtocol
+    0,              // iInterface
 };
 
 #define USB_DESCS           ((volatile USBD_descriptor*)0x40006000)
@@ -111,6 +121,7 @@ int main(void) {
     R32_EXTEN_CTR |= (1 << 1);
 
     uint32_t master_state = 0;
+    uint32_t active_config = 0;
 
     // R32_GPIOA_CFGLR = (R32_GPIOA_CFGLR & ~0xf) | (0b0010 << 0);
     while (1) {
@@ -160,6 +171,16 @@ int main(void) {
                             R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b01 << 4);  // STALL for OUT, ACK for IN
                         } else {
                             // bad descriptor
+                            R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b11 << 4);  // STALL for both
+                        }
+                    } else if (bRequest_bmRequestType == 0x0900) {
+                        // SET_CONFIGURATION
+                        uint32_t wValue = USB_EP0_OUT(2);
+                        if (wValue == 0 || wValue == 1) {
+                            active_config = wValue;
+                            USB_DESCS[0].count_tx = 0;
+                            R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b01 << 4);  // STALL for OUT, ACK for IN
+                        } else {
                             R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b11 << 4);  // STALL for both
                         }
                     } else {
