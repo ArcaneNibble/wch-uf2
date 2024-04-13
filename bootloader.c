@@ -90,6 +90,7 @@ const uint8_t USB_CONF_DESC[0x12] __attribute__((aligned(16))) = {
 #define STATE_GET_DEV_DESC      0x01
 #define STATE_GET_CONF_DESC     0x02
 #define STATE_CTRL_STATUS_OUT   0x03
+#define STATE_CTRL_SIMPLE_IN    0x04
 
 int main(void) {
     // PLL setup: system clock 96 MHz
@@ -137,7 +138,13 @@ int main(void) {
                 if (ep0_status & (1 << 11)) {
                     // setup, STAT_RX and STAT_TX both now NAK
                     uint16_t bRequest_bmRequestType = USB_EP0_OUT(0);
-                    if (bRequest_bmRequestType == 0x0500) {
+                    if (bRequest_bmRequestType == 0x0080) {
+                        // GET_STATUS
+                        USB_EP0_IN(0) = 0;
+                        USB_DESCS[0].count_tx = 2;
+                        master_state = (STATE_CTRL_SIMPLE_IN << 24);
+                        R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b01 << 4);  // STALL for OUT, ACK for IN
+                    } else if (bRequest_bmRequestType == 0x0500) {
                         // SET_ADDRESS
                         master_state = (STATE_SET_ADDR << 24) | USB_EP0_OUT(2);
                         USB_DESCS[0].count_tx = 0;
@@ -173,6 +180,12 @@ int main(void) {
                             // bad descriptor
                             R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b11 << 4);  // STALL for both
                         }
+                    } else if (bRequest_bmRequestType == 0x0880) {
+                        // GET_CONFIGURATION
+                        USB_EP0_IN(0) = active_config;
+                        USB_DESCS[0].count_tx = 1;
+                        master_state = (STATE_CTRL_SIMPLE_IN << 24);
+                        R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b01 << 4);  // STALL for OUT, ACK for IN
                     } else if (bRequest_bmRequestType == 0x0900) {
                         // SET_CONFIGURATION
                         uint32_t wValue = USB_EP0_OUT(2);
@@ -186,7 +199,6 @@ int main(void) {
                     } else {
                         // unknown
                         R16_USBD_EPR(0) = (0b01 << 9) | (0b11 << 12) | (0b11 << 4);   // STALL for both
-                        while (1) {}
                     }
                 } else {
                     switch (master_state >> 24) {
@@ -253,6 +265,11 @@ int main(void) {
                                 R16_USBD_EPR(0) = (0b01 << 9) | (0b01 << 4);  // ACK for IN
                             }
                         }
+                        break;
+                    case STATE_CTRL_SIMPLE_IN:
+                        // ready for OUT status ACK, no more IN
+                        master_state = (STATE_CTRL_STATUS_OUT << 24);
+                        R16_USBD_EPR(0) = (0b01 << 9) | (0b10 << 12) | (1 << 8) | (0b11 << 4);
                         break;
                 }
             }
