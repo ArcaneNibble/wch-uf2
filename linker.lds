@@ -42,6 +42,8 @@ SECTIONS
     PROVIDE( USB_EP0_IN         = 0x40006030 );
     PROVIDE( USB_EP1_OUT        = 0x40006040 );
     PROVIDE( USB_EP1_IN         = 0x400060c0 );
+    PROVIDE( CSWTAG_LO          = 0x400061cc );
+    PROVIDE( CSWTAG_HI          = 0x400061d0 );
     PROVIDE( BLOCKNUM_LO        = 0x400061d4 );
     PROVIDE( BLOCKNUM_HI        = 0x400061d8 );
     PROVIDE( TOTBLOCKS_LO       = 0x400061dc );

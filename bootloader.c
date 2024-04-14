@@ -21,7 +21,7 @@ typedef struct USBD_descriptor {
 //      EP 1 IN (64 bytes)
 // +0x140
 //      <unused>
-// +0x1d4
+// +0x1cc
 //      ram for stashing data
 // +0x200
 //      <256-byte flash page buffer>
@@ -160,7 +160,8 @@ extern volatile uint32_t            USB_EP1_OUT[32];
 extern volatile uint32_t            USB_EP1_IN[32];
 #define USB_EP1_IN_OLDOLD(offs)    (*(volatile uint32_t *)(0x400060C0 + 2 * (offs)))
 
-#define USB_UF2_FIELDS_STASH(offs)  (*(uint32_t *)(0x400061d4 + 2 * (offs)))
+extern uint32_t CSWTAG_LO;
+extern uint32_t CSWTAG_HI;
 extern uint32_t BLOCKNUM_LO;
 extern uint32_t BLOCKNUM_HI;
 extern uint32_t TOTBLOCKS_LO;
@@ -372,7 +373,6 @@ __attribute__((naked)) int main(void) {
     // bits [23:20] = sense key
     // bits [7:0] = state
     uint32_t msc_state = STATE_WANT_CBW;
-    uint32_t dCSWTag = 0;
     // when reading:
     // [31:16] = current lba
     // [15:0] = blocks left
@@ -418,6 +418,7 @@ __attribute__((naked)) int main(void) {
                         // XXX how is this supposed to work?
                         uint32_t wIndex = USB_EP0_OUT[2];
                         if (wIndex == 0x81) {
+                            uint32_t dCSWTag = CSWTAG_LO | (CSWTAG_HI << 16);
                             make_msc_csw(dCSWTag, 1);
                             msc_state = (msc_state & 0xffffff00) | STATE_SENT_CSW;
                             set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
@@ -600,7 +601,9 @@ __attribute__((naked)) int main(void) {
                         if ((USB_DESCS[1].count_rx & 0x3f) != 0x1f || USB_EP1_OUT[0] != 0x5355 || USB_EP1_OUT[1] != 0x4342) {
                             set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
                         } else {
-                            dCSWTag = USB_EP1_OUT[2] | (USB_EP1_OUT[3] << 16);
+                            CSWTAG_LO = USB_EP1_OUT[2];
+                            CSWTAG_HI = USB_EP1_OUT[3];
+                            uint32_t dCSWTag = CSWTAG_LO | (CSWTAG_HI << 16);
                             uint32_t dCBWDataTransferLength = USB_EP1_OUT[4] | (USB_EP1_OUT[5] << 16);
                             uint32_t bmCBWFlags = USB_EP1_OUT[6] & 0xff;
                             uint32_t operation_code = USB_EP1_OUT[7] >> 8;
@@ -803,6 +806,7 @@ __attribute__((naked)) int main(void) {
                             uint32_t blocks_left = scsi_xfer_lba_blocks & 0xffff;
                             blocks_left--;
                             if (blocks_left == 0) {
+                                uint32_t dCSWTag = CSWTAG_LO | (CSWTAG_HI << 16);
                                 make_msc_csw(dCSWTag, 0);
                                 if (UF2_BLOCKS_LEFT == 0x8000)
                                     msc_state = STATE_SENT_CSW_REBOOT;
@@ -818,6 +822,7 @@ __attribute__((naked)) int main(void) {
                 }
             } else if ((ep_status & (1 << 7)) && (epidx == 1)) {
                 // ep 1 in
+                uint32_t dCSWTag = CSWTAG_LO | (CSWTAG_HI << 16);
                 switch (msc_state & 0xff) {
                     case STATE_SENT_CSW:
                         set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
