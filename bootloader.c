@@ -119,7 +119,7 @@ const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(2))) = {
 const uint8_t INFO_UF2[70] __attribute__((aligned(2))) = "UF2 Bootloader v0.0.0\nModel: CH32V Generic\nBoard-ID: CH32Vxxx-Generic\n";
 const uint8_t INDEX_HTM[119] __attribute__((aligned(2))) = "<!doctype html>\n<html><body><script>location.replace(\"https://github.com/ArcaneNibble/wch-uf2\")</script></body></html>\n";
 #define THIS_CHIP_FLASH_MAX_SZ_BYTES    (224 * 1024)
-#define BOOTLOADER_RESERVED_SZ_BYTES    (8 * 1024)
+#define BOOTLOADER_RESERVED_SZ_BYTES    (4 * 1024)
 #define THIS_CHIP_RAM_MAX_SZ_BYTES      (20 * 1024)
 #define FAMILY_ID                       0xdeadbeef
 
@@ -864,7 +864,7 @@ __attribute__((naked)) int main(void) {
                             // ram boot
                             R32_RCC_CFGR0 = (R32_RCC_CFGR0 & ~0b11) | 0b00;
                             while ((R32_RCC_CFGR0 & 0b1100) != 0b0000) {}
-                            ((void (*)())0x20000000)();
+                            asm volatile("la t0, 0x20000000\njr t0\n1:\nj 1b\n");
                         } else {
                             // wtf why does this work and the other stuff doesn't?
                             R16_BKP_DATAR10 = 0x4170;

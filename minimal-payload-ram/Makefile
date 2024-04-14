@@ -30,4 +30,4 @@ main.elf: startup.o main.o
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f *.o *.elf *.map *.dump
+	rm -f *.o *.elf *.map *.dump *.uf2

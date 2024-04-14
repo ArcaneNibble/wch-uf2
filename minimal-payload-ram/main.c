@@ -18,10 +18,10 @@ int main(void) {
     R32_GPIOA_CFGLR = (R32_GPIOA_CFGLR & ~0xf) | (0b0010 << 0);
     while (1) {
         R32_GPIOA_BSHR = 1 << 0;
-        for (int i = 0; i < 500000; i++)
+        for (int i = 0; i < 250000; i++)
             asm volatile("");
         R32_GPIOA_BSHR = 1 << 16;
-        for (int i = 0; i < 500000; i++)
+        for (int i = 0; i < 250000; i++)
             asm volatile("");
     }
 }

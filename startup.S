@@ -100,6 +100,5 @@ _enter_bootloader:
     csrw 0xbc0, t0
 
     // Invoke main
-    la t0, main
-    csrw mepc, t0
-    mret
+    // XXX the mepc thing does something really weird
+    j main
