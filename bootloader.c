@@ -161,13 +161,12 @@ extern volatile uint32_t            USB_EP1_IN[32];
 #define USB_EP1_IN_OLDOLD(offs)    (*(volatile uint32_t *)(0x400060C0 + 2 * (offs)))
 
 #define USB_UF2_FIELDS_STASH(offs)  (*(uint32_t *)(0x400061d4 + 2 * (offs)))
-#define ACTIVE_CONFIG       USB_UF2_FIELDS_STASH(12)
-#define UF2_BLOCKS_LEFT     USB_UF2_FIELDS_STASH(14)
-#define CTRL_XFER_STATE     USB_UF2_FIELDS_STASH(16)
-#define CTRL_XFER_STATE_X   USB_UF2_FIELDS_STASH(18)
-#define CTRL_XFER_DESC_SZ   USB_UF2_FIELDS_STASH(20)
-extern volatile uint32_t            USB_SECTOR_STASH[128];
-// #define USB_SECTOR_STASH(offs)      (*(uint32_t *)(0x40006200 + 2 * (offs)))
+extern uint32_t ACTIVE_CONFIG;
+extern uint32_t UF2_BLOCKS_LEFT;
+extern uint32_t CTRL_XFER_STATE;
+extern uint32_t CTRL_XFER_STATE_X;
+extern uint32_t CTRL_XFER_DESC_SZ;
+extern uint32_t USB_SECTOR_STASH[128];
 
 #define USB_EPTYPE_BULK     0b00
 #define USB_EPTYPE_CONTROL  0b01
