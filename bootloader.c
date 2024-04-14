@@ -754,7 +754,19 @@ __attribute__((naked)) int main(void) {
                                 default:
                                     // illegal command
                                     msc_state = STATE_SENT_CSW | (5 << 20);
-                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+                                    if (dCBWDataTransferLength == 0) {
+                                        USB_EP1_IN(0) = 0x5355;
+                                        USB_EP1_IN(2) = 0x5342;
+                                        USB_EP1_IN(4) = dCSWTag;
+                                        USB_EP1_IN(6) = dCSWTag >> 16;
+                                        USB_EP1_IN(8) = 0;
+                                        USB_EP1_IN(10) = 0;
+                                        USB_EP1_IN(12) = 1;
+                                        USB_DESCS[1].count_tx = 13;
+                                        set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    } else {
+                                        set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+                                    }
                                     break;
                             }
                         }
