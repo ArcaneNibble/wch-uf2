@@ -161,6 +161,12 @@ extern volatile uint32_t            USB_EP1_IN[32];
 #define USB_EP1_IN_OLDOLD(offs)    (*(volatile uint32_t *)(0x400060C0 + 2 * (offs)))
 
 #define USB_UF2_FIELDS_STASH(offs)  (*(uint32_t *)(0x400061d4 + 2 * (offs)))
+extern uint32_t BLOCKNUM_LO;
+extern uint32_t BLOCKNUM_HI;
+extern uint32_t TOTBLOCKS_LO;
+extern uint32_t TOTBLOCKS_HI;
+extern uint32_t ADDRESS_LO;
+extern uint32_t ADDRESS_HI;
 extern uint32_t ACTIVE_CONFIG;
 extern uint32_t UF2_BLOCKS_LEFT;
 extern uint32_t CTRL_XFER_STATE;
@@ -727,12 +733,12 @@ __attribute__((naked)) int main(void) {
                                 if (!(flags & 1) && bytes == 256 && (address & 0xff) == 0) {
                                     if (flags & (0x2000) && familyid == FAMILY_ID) {
                                         // uf2 good so far!
-                                        USB_UF2_FIELDS_STASH(0) = USB_EP1_OUT[10];
-                                        USB_UF2_FIELDS_STASH(2) = USB_EP1_OUT[11];
-                                        USB_UF2_FIELDS_STASH(4) = USB_EP1_OUT[12];
-                                        USB_UF2_FIELDS_STASH(6) = USB_EP1_OUT[13];
-                                        USB_UF2_FIELDS_STASH(8) = USB_EP1_OUT[6];
-                                        USB_UF2_FIELDS_STASH(10) = USB_EP1_OUT[7];
+                                        BLOCKNUM_LO = USB_EP1_OUT[10];
+                                        BLOCKNUM_HI = USB_EP1_OUT[11];
+                                        TOTBLOCKS_LO = USB_EP1_OUT[12];
+                                        TOTBLOCKS_HI = USB_EP1_OUT[13];
+                                        ADDRESS_LO = USB_EP1_OUT[6];
+                                        ADDRESS_HI = USB_EP1_OUT[7];
 
                                         for (int i = 0; i < 16; i++)
                                             USB_SECTOR_STASH[i] = USB_EP1_OUT[16 + i];
@@ -757,9 +763,9 @@ __attribute__((naked)) int main(void) {
                             if (msc_state & 0x1000) {
                                 if (USB_EP1_OUT[30] == 0x6F30 && USB_EP1_OUT[31] == 0x0AB1) {
                                     // uf2 all magics are good!
-                                    uint32_t blocknum = USB_UF2_FIELDS_STASH(0) | (USB_UF2_FIELDS_STASH(2) << 16);
-                                    uint32_t totblocks = USB_UF2_FIELDS_STASH(4) | (USB_UF2_FIELDS_STASH(6) << 16);
-                                    uint32_t address = USB_UF2_FIELDS_STASH(8) | (USB_UF2_FIELDS_STASH(10) << 16);
+                                    uint32_t blocknum = BLOCKNUM_LO | (BLOCKNUM_HI << 16);
+                                    uint32_t totblocks = TOTBLOCKS_LO | (TOTBLOCKS_HI << 16);
+                                    uint32_t address = ADDRESS_LO | (ADDRESS_HI << 16);
 
                                     if (UF2_BLOCKS_LEFT == 0)
                                         UF2_BLOCKS_LEFT = (totblocks - 1) | 0x8000;
