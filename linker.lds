@@ -32,6 +32,10 @@ SECTIONS
         . = ALIGN(4);
     } >FLASH
 
+    PROVIDE( R16_USBD_EPR       = 0x40005C00 );
+    PROVIDE( R16_USBD_CNTR      = 0x40005C40 );
+    PROVIDE( R16_USBD_ISTR      = 0x40005C44 );
+    PROVIDE( R16_USBD_DADDR     = 0x40005C4C );
     PROVIDE( __global_pointer$  = 0x40006000 );
     PROVIDE( USB_DESCS          = 0x40006000 );
     PROVIDE( USB_EP0_OUT        = 0x40006020 );

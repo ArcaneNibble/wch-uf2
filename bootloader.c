@@ -193,10 +193,15 @@ extern uint32_t USB_SECTOR_STASH[128];
 #define R32_GPIOA_CFGHR     (*(volatile uint32_t*)0x40010804)
 #define R32_GPIOA_BSHR      (*(volatile uint32_t*)0x40010810)
 
-#define R16_USBD_EPR(n)     (*(volatile uint16_t*)(0x40005C00 + 4 * (n)))
-#define R16_USBD_CNTR       (*(volatile uint16_t*)0x40005C40)
-#define R16_USBD_ISTR       (*(volatile uint16_t*)0x40005C44)
-#define R16_USBD_DADDR      (*(volatile uint16_t*)0x40005C4C)
+// #define R16_USBD_EPR(n)     (*(volatile uint16_t*)(0x40005C00 + 4 * (n)))
+// #define R16_USBD_CNTR       (*(volatile uint16_t*)0x40005C40)
+// #define R16_USBD_ISTR       (*(volatile uint16_t*)0x40005C44)
+// #define R16_USBD_DADDR      (*(volatile uint16_t*)0x40005C4C)
+// XXX wrong access size
+extern volatile uint32_t R16_USBD_EPR[16];
+extern volatile uint16_t R16_USBD_CNTR;
+extern volatile uint16_t R16_USBD_ISTR;
+extern volatile uint16_t R16_USBD_DADDR;
 
 #define R32_FLASH_KEYR      (*(volatile uint32_t*)0x40022004)
 #define R32_FLASH_STATR     (*(volatile uint32_t*)0x4002200C)
@@ -233,14 +238,14 @@ extern uint32_t USB_SECTOR_STASH[128];
 // WARNING: only one level of non-inline subroutine calls are possible
 
 __attribute__((always_inline)) static inline void set_ep_mode(uint32_t epidx, uint32_t epaddr, uint32_t eptype, uint32_t stat_rx, uint32_t stat_tx, uint32_t xtra, int clear_dtog) {
-    uint32_t val = R16_USBD_EPR(epidx);
+    uint32_t val = R16_USBD_EPR[epidx];
     uint32_t cur_stats;
     if (clear_dtog)
         cur_stats = val & 0x7070;
     else
         cur_stats = val & 0x3030;
     uint32_t want_stats = (stat_rx << 12) | (stat_tx) << 4;
-    R16_USBD_EPR(epidx) = epaddr | (eptype << 9) | xtra | (cur_stats ^ want_stats);
+    R16_USBD_EPR[epidx] = epaddr | (eptype << 9) | xtra | (cur_stats ^ want_stats);
 }
 
 __attribute__((always_inline)) static inline uint32_t min(uint32_t a, uint32_t b) {
@@ -396,7 +401,7 @@ __attribute__((naked)) int main(void) {
             R16_USBD_CNTR = 0;
         } else if (usb_int_status & (1 << 15)) {
             uint32_t epidx = usb_int_status & 0xf;
-            uint32_t ep_status = R16_USBD_EPR(epidx);
+            uint32_t ep_status = R16_USBD_EPR[epidx];
             if ((ep_status & (1 << 15)) && (epidx == 0)) {
                 if (ep_status & (1 << 11)) {
                     // setup, STAT_RX and STAT_TX both now NAK
