@@ -119,6 +119,8 @@ const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(2))) = {
 const uint8_t INFO_UF2[70] __attribute__((aligned(2))) = "UF2 Bootloader v0.0.0\nModel: CH32V Generic\nBoard-ID: CH32Vxxx-Generic\n";
 const uint8_t INDEX_HTM[119] __attribute__((aligned(2))) = "<!doctype html>\n<html><body><script>location.replace(\"https://github.com/ArcaneNibble/wch-uf2\")</script></body></html>\n";
 #define THIS_CHIP_FLASH_MAX_SZ_BYTES    (224 * 1024)
+#define BOOTLOADER_RESERVED_SZ_BYTES    (8 * 1024)
+#define THIS_CHIP_RAM_MAX_SZ_BYTES      (20 * 1024)
 #define FAMILY_ID                       0xdeadbeef
 
 const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
@@ -726,16 +728,20 @@ __attribute__((naked)) int main(void) {
                                 uint32_t bytes = USB_EP1_OUT[8] | (USB_EP1_OUT[9] << 16);
                                 uint32_t familyid = USB_EP1_OUT[14] | (USB_EP1_OUT[15] << 16);
 
-                                if (!(flags & 1) && bytes == 256 && (address & 0xff) == 0) {
+                                if (bytes == 256 && (address & 0xff) == 0) {
                                     if (flags & (0x2000) && familyid == FAMILY_ID) {
                                         // uf2 good so far!
-                                        ADDRESS_LO = USB_EP1_OUT[6];
-                                        ADDRESS_HI = USB_EP1_OUT[7];
 
-                                        for (int i = 0; i < 16; i++)
-                                            USB_SECTOR_STASH[i] = USB_EP1_OUT[16 + i];
+                                        // *preliminary* bounds check
+                                        if ((!(flags & 1) && (address >> 24) == 0x08) || ((flags & 1) && (address >> 24) == 0x20)) {
+                                            ADDRESS_LO = USB_EP1_OUT[6];
+                                            ADDRESS_HI = USB_EP1_OUT[7];
 
-                                        msc_state += 0x1000;
+                                            for (int i = 0; i < 16; i++)
+                                                USB_SECTOR_STASH[i] = USB_EP1_OUT[16 + i];
+
+                                            msc_state += 0x1000;
+                                        }
                                     }
                                 }
                             }
@@ -757,26 +763,34 @@ __attribute__((naked)) int main(void) {
                                     // uf2 all magics are good!
                                     uint32_t address = ADDRESS_LO | (ADDRESS_HI << 16);
 
-                                    // todo flash the file
-                                    // todo ram download mode
-                                    R32_FLASH_KEYR = 0x45670123;
-                                    R32_FLASH_KEYR = 0xCDEF89AB;
-                                    R32_FLASH_MODEKEYR = 0x45670123;
-                                    R32_FLASH_MODEKEYR = 0xCDEF89AB;
-                                    R32_FLASH_CTLR = 1 << 17;
-                                    R32_FLASH_ADDR = address;
-                                    R32_FLASH_CTLR = (1 << 17) | (1 << 6);
-                                    while (R32_FLASH_STATR & 1) {}
-                                    R32_FLASH_CTLR = 1 << 16;
-                                    for (int i = 0; i < 64; i++) {
-                                        volatile uint32_t *addr = (volatile uint32_t *)(address + i * 4);
-                                        uint32_t val = USB_SECTOR_STASH[i * 2] | (USB_SECTOR_STASH[i * 2 + 1] << 16);
-                                        *addr = val;
-                                        while (R32_FLASH_STATR & 2) {}
+                                    if (address >= 0x08000000 + BOOTLOADER_RESERVED_SZ_BYTES &&
+                                        address <= 0x08000000 + THIS_CHIP_FLASH_MAX_SZ_BYTES - 256) {
+                                        R32_FLASH_KEYR = 0x45670123;
+                                        R32_FLASH_KEYR = 0xCDEF89AB;
+                                        R32_FLASH_MODEKEYR = 0x45670123;
+                                        R32_FLASH_MODEKEYR = 0xCDEF89AB;
+                                        R32_FLASH_CTLR = 1 << 17;
+                                        R32_FLASH_ADDR = address;
+                                        R32_FLASH_CTLR = (1 << 17) | (1 << 6);
+                                        while (R32_FLASH_STATR & 1) {}
+                                        R32_FLASH_CTLR = 1 << 16;
+                                        for (int i = 0; i < 64; i++) {
+                                            volatile uint32_t *addr = (volatile uint32_t *)(address + i * 4);
+                                            uint32_t val = USB_SECTOR_STASH[i * 2] | (USB_SECTOR_STASH[i * 2 + 1] << 16);
+                                            *addr = val;
+                                            while (R32_FLASH_STATR & 2) {}
+                                        }
+                                        R32_FLASH_CTLR = (1 << 16) | (1 << 21);
+                                        while (R32_FLASH_STATR & 1) {}
+                                        R32_FLASH_CTLR = (1 << 15) | (1 << 7);
                                     }
-                                    R32_FLASH_CTLR = (1 << 16) | (1 << 21);
-                                    while (R32_FLASH_STATR & 1) {}
-                                    R32_FLASH_CTLR = (1 << 15) | (1 << 7);
+                                    if (address >= 0x20000000 && address <= 0x20000000 + THIS_CHIP_RAM_MAX_SZ_BYTES - 256) {
+                                        for (int i = 0; i < 64; i++) {
+                                            volatile uint32_t *addr = (volatile uint32_t *)(address + i * 4);
+                                            uint32_t val = USB_SECTOR_STASH[i * 2] | (USB_SECTOR_STASH[i * 2 + 1] << 16);
+                                            *addr = val;
+                                        }
+                                    }
                                 }
                             }
 
