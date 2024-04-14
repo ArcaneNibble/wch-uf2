@@ -157,7 +157,8 @@ extern volatile USBD_descriptor     USB_DESCS[2];
 extern volatile uint32_t            USB_EP0_OUT[4];
 extern volatile uint32_t            USB_EP0_IN[4];
 extern volatile uint32_t            USB_EP1_OUT[32];
-#define USB_EP1_IN(offs)    (*(volatile uint32_t *)(0x400060C0 + 2 * (offs)))
+extern volatile uint32_t            USB_EP1_IN[32];
+#define USB_EP1_IN_OLDOLD(offs)    (*(volatile uint32_t *)(0x400060C0 + 2 * (offs)))
 
 #define USB_UF2_FIELDS_STASH(offs)  (*(uint32_t *)(0x400061d4 + 2 * (offs)))
 #define ACTIVE_CONFIG       USB_UF2_FIELDS_STASH(12)
@@ -261,7 +262,7 @@ const uint8_t READ_CAPACITY[8] __attribute__((aligned(2))) = {
 };
 static void ep1_send_hardcoded_response(const uint16_t *data, uint32_t len) {
     for (uint32_t i = 0; i < (len + 1) / 2; i++)
-        USB_EP1_IN(i * 2) = data[i];
+        USB_EP1_IN[i] = data[i];
     USB_DESCS[1].count_tx = len;
     set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
 }
@@ -288,22 +289,22 @@ static void synthesize_block(uint32_t block, uint32_t piece) {
 
         int usbofs, secofs;
         for (usbofs = 0, secofs = cur_offset_16bits; secofs < sector_sz_16bits; usbofs++, secofs++)
-            USB_EP1_IN(usbofs * 2) = sector_ptr[secofs];
+            USB_EP1_IN_OLDOLD(usbofs * 2) = sector_ptr[secofs];
         for (; usbofs < 32; usbofs++)
-            USB_EP1_IN(usbofs * 2) = 0;
+            USB_EP1_IN_OLDOLD(usbofs * 2) = 0;
 
         if (block == 0 && piece == 7)
-            USB_EP1_IN(62) = 0xaa55;
+            USB_EP1_IN[31] = 0xaa55;
     } else if (block == 1 && piece == 0) {
-        USB_EP1_IN(0) = 0xfff8;
-        USB_EP1_IN(2) = 0xffff;
-        USB_EP1_IN(4) = 0xfff8;
-        USB_EP1_IN(6) = 0xfff8;
+        USB_EP1_IN[0] = 0xfff8;
+        USB_EP1_IN[1] = 0xffff;
+        USB_EP1_IN[2] = 0xfff8;
+        USB_EP1_IN[3] = 0xfff8;
         for (int i = 4; i < 32; i++)
-            USB_EP1_IN(i * 2) = 0;
+            USB_EP1_IN[i] = 0;
     } else {
         for (int i = 0; i < 32; i++)
-            USB_EP1_IN(i * 2) = 0;
+            USB_EP1_IN[i] = 0;
     }
 
     USB_DESCS[1].count_tx = 64;
@@ -311,13 +312,13 @@ static void synthesize_block(uint32_t block, uint32_t piece) {
 }
 
 static void make_msc_csw(uint32_t dCSWTag, uint32_t error) {
-    USB_EP1_IN(0) = 0x5355;
-    USB_EP1_IN(2) = 0x5342;
-    USB_EP1_IN(4) = dCSWTag;
-    USB_EP1_IN(6) = dCSWTag >> 16;
-    USB_EP1_IN(8) = 0;      // xxx this isn't very right
-    USB_EP1_IN(10) = 0;
-    USB_EP1_IN(12) = error;
+    USB_EP1_IN[0] = 0x5355;
+    USB_EP1_IN[1] = 0x5342;
+    USB_EP1_IN[2] = dCSWTag;
+    USB_EP1_IN[3] = dCSWTag >> 16;
+    USB_EP1_IN[4] = 0;      // xxx this isn't very right
+    USB_EP1_IN[5] = 0;
+    USB_EP1_IN[6] = error;
     USB_DESCS[1].count_tx = 13;
     set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
 }
@@ -601,15 +602,15 @@ __attribute__((naked)) int main(void) {
                                     break;
                                 case 0x03:
                                     // request sense
-                                    USB_EP1_IN(0) = 0x0070;
-                                    USB_EP1_IN(2) = (msc_state >> 20) & 0xf;
-                                    USB_EP1_IN(4) = 0;
-                                    USB_EP1_IN(6) = 0;
-                                    USB_EP1_IN(8) = 0;
-                                    USB_EP1_IN(10) = 0;
-                                    USB_EP1_IN(12) = (msc_state >> 24) & 0xff;
-                                    USB_EP1_IN(14) = 0;
-                                    USB_EP1_IN(16) = 0;
+                                    USB_EP1_IN[0] = 0x0070;
+                                    USB_EP1_IN[1] = (msc_state >> 20) & 0xf;
+                                    USB_EP1_IN[2] = 0;
+                                    USB_EP1_IN[3] = 0;
+                                    USB_EP1_IN[4] = 0;
+                                    USB_EP1_IN[5] = 0;
+                                    USB_EP1_IN[6] = (msc_state >> 24) & 0xff;
+                                    USB_EP1_IN[7] = 0;
+                                    USB_EP1_IN[8] = 0;
                                     USB_DESCS[1].count_tx = 18;
                                     set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
                                     msc_state = STATE_SENT_DATA_IN;
