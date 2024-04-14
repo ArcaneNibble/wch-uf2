@@ -117,7 +117,7 @@ const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(2))) = {
 };
 
 const uint8_t INFO_UF2[70] __attribute__((aligned(2))) = "UF2 Bootloader v0.0.0\nModel: CH32V Generic\nBoard-ID: CH32Vxxx-Generic\n";
-const uint8_t INDEX_HTM[] __attribute__((aligned(2))) = "fdsafdsaTODO22222222";
+const uint8_t INDEX_HTM[119] __attribute__((aligned(2))) = "<!doctype html>\n<html><body><script>location.replace(\"https://github.com/ArcaneNibble/wch-uf2\")</script></body></html>\n";
 #define THIS_CHIP_FLASH_MAX_SZ_BYTES    (224 * 1024)
 #define FAMILY_ID                       0xdeadbeef
 
@@ -276,9 +276,12 @@ __attribute__((always_inline)) static inline void synthesize_block(uint32_t bloc
         for (int i = (sizeof(INFO_UF2) - 64 + 1) / 2; i < 32; i++)
             USB_EP1_IN(i * 2) = 0;
     } else if (block == 67 && piece == 0) {
-        for (int i = 0; i < (sizeof(INDEX_HTM) + 1) / 2; i++)
+        for (int i = 0; i < 32; i++)
             USB_EP1_IN(i * 2) = ((uint16_t*)INDEX_HTM)[i];
-        for (int i = (sizeof(INDEX_HTM) + 1) / 2; i < 32; i++)
+    } else if (block == 67 && piece == 1) {
+        for (int i = 0; i < (sizeof(INDEX_HTM) - 64 + 1) / 2; i++)
+            USB_EP1_IN(i * 2) = ((uint16_t*)INDEX_HTM)[32 + i];
+        for (int i = (sizeof(INDEX_HTM) - 64 + 1) / 2; i < 32; i++)
             USB_EP1_IN(i * 2) = 0;
     } else {
         for (int i = 0; i < 32; i++)
