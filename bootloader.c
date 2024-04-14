@@ -314,7 +314,7 @@ __attribute__((naked)) int main(void) {
 
     // Enable USB
     R32_RCC_APB1PCENR |= (1 << 23);
-    R16_USBD_CNTR &= ~(1 << 1);
+    R16_USBD_CNTR = 1;
     USB_DESCS[0].addr_tx = 0x30 / 2;
     USB_DESCS[0].addr_rx = 0x20 / 2;
     USB_DESCS[0].count_rx = (8 << 10);
@@ -324,7 +324,7 @@ __attribute__((naked)) int main(void) {
     // XXX because the table is at offset 0 don't bother writing this
 
     // Attach USB
-    R16_USBD_CNTR &= ~(1 << 0);
+    R16_USBD_CNTR = 0;
     R32_EXTEN_CTR |= (1 << 1);
 
     CTRL_XFER_STATE = 0;
@@ -354,6 +354,14 @@ __attribute__((naked)) int main(void) {
             set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
             set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_DISABLED, USB_STAT_DISABLED, 0, 0);
             R16_USBD_DADDR = 0x80;
+            R16_USBD_CNTR = 0;
+        } else if (usb_int_status & (1 << 11)) {
+            // suspend
+            R16_USBD_CNTR |= 1 << 3;
+            R16_USBD_CNTR |= 1 << 2;
+        } else if (usb_int_status & (1 << 12)) {
+            // wakeup
+            R16_USBD_CNTR = 0;
         } else if (usb_int_status & (1 << 15)) {
             uint32_t epidx = usb_int_status & 0xf;
             uint32_t ep_status = R16_USBD_EPR(epidx);
