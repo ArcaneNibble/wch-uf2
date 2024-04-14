@@ -481,7 +481,7 @@ __attribute__((naked)) int main(void) {
                                 CTRL_XFER_STATE = STATE_GET_STR_SERIAL;
                             } else {
                                 USB_DESCS[0].count_tx = 8;
-                                CTRL_XFER_STATE_X = (3 << 8) | (wLength - 8);
+                                CTRL_XFER_STATE_X = (8 << 8) | (wLength - 8);
                                 CTRL_XFER_STATE = STATE_GET_STR_SERIAL;
                             }
                             set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
@@ -535,6 +535,7 @@ __attribute__((naked)) int main(void) {
                         set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
                         break;
                     case STATE_GET_DESC:
+                    case STATE_GET_STR_SERIAL:
                         {
                             uint32_t x = CTRL_XFER_STATE_X;
                             uint32_t byte_pos = (x >> 8) & 0xff;
@@ -545,43 +546,29 @@ __attribute__((naked)) int main(void) {
                             } else {
                                 uint32_t bytes = bytes_left;
                                 if (bytes > 8) bytes = 8;
-                                if (byte_pos + bytes > CTRL_XFER_DESC_SZ)
-                                    bytes = CTRL_XFER_DESC_SZ - byte_pos;
-                                for (int i = 0; i < bytes; i+=2)
-                                    USB_EP0_IN[i / 2] = *((uint16_t*)(outputting_desc + byte_pos + i));
+                                if (CTRL_XFER_STATE == STATE_GET_DESC) {
+                                    if (byte_pos + bytes > CTRL_XFER_DESC_SZ)
+                                        bytes = CTRL_XFER_DESC_SZ - byte_pos;
+                                    for (int i = 0; i < bytes; i+=2)
+                                        USB_EP0_IN[i / 2] = *((uint16_t*)(outputting_desc + byte_pos + i));
+                                } else {
+                                    // todo
+                                    uint32_t serial_no_pos = (byte_pos - 2) / 2;
+                                    uint32_t ascii_bytes = (bytes + 1) / 2;
+                                    if (serial_no_pos + ascii_bytes > 24) {
+                                        ascii_bytes = 24 - serial_no_pos;
+                                        // xxx this should be fine, reads 8 byte chunks
+                                        bytes = ascii_bytes * 2;
+                                    }
+                                    for (int i = 0; i < ascii_bytes; i++)
+                                        USB_EP0_IN[i] = HEXLUT[(ESIG_UNIID((serial_no_pos + i) / 2) >> ((1 - ((serial_no_pos + i) % 2)) * 4)) & 0xf];
+                                }
                                 if (bytes < 8) {
                                     USB_DESCS[0].count_tx = bytes;
                                     CTRL_XFER_STATE_X = 0;
                                 } else {
                                     USB_DESCS[0].count_tx = 8;
                                     CTRL_XFER_STATE_X = ((byte_pos + 8) << 8) | (bytes_left - 8);
-                                }
-                                set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
-                            }
-                        }
-                        break;
-                    case STATE_GET_STR_SERIAL:
-                        {
-                            uint32_t x = CTRL_XFER_STATE_X;
-                            uint32_t str_pos = (x >> 8) & 0xff;
-                            uint32_t bytes_left = x & 0xff;
-                            if (bytes_left == 0) {
-                                // ACK for OUT ZLP, STALL for IN
-                                set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_ACK, USB_STAT_STALL, 1 << 8, 0);
-                            } else {
-                                // XXX this is confusing
-                                uint32_t ascii_bytes = (bytes_left + 1) / 2;
-                                if (ascii_bytes > 4) ascii_bytes = 4;
-                                if (str_pos + ascii_bytes > 24)
-                                    ascii_bytes = 24 - str_pos;
-                                for (int i = 0; i < ascii_bytes; i++)
-                                    USB_EP0_IN[i] = HEXLUT[(ESIG_UNIID((str_pos + i) / 2) >> ((1 - ((str_pos + i) % 2)) * 4)) & 0xf];
-                                if (ascii_bytes < 4) {
-                                    USB_DESCS[0].count_tx = bytes_left;
-                                    CTRL_XFER_STATE_X = 0;
-                                } else {
-                                    USB_DESCS[0].count_tx = 8;
-                                    CTRL_XFER_STATE_X = ((str_pos + 4) << 8) | (bytes_left - 8);
                                 }
                                 set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
                             }
