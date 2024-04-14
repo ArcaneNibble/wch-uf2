@@ -188,6 +188,8 @@ extern uint32_t UF2_GOT_BLOCKS[36];
 
 #define R16_BKP_DATAR10     (*(volatile uint32_t*)0x40006C28)
 
+#define R32_PWR_CTLR        (*(volatile uint32_t*)0x40007000)
+
 #define R32_RCC_CTLR        (*(volatile uint32_t*)0x40021000)
 #define R32_RCC_CFGR0       (*(volatile uint32_t*)0x40021004)
 #define R32_RCC_APB2PCENR   (*(volatile uint32_t*)0x40021018)
@@ -348,6 +350,11 @@ static void make_msc_csw(uint32_t dCSWTag, uint32_t error) {
 }
 
 __attribute__((naked)) int main(void) {
+    // Make sure this stuff is enabled
+    R32_RCC_APB1PCENR |= (1 << 27) | (1 << 28);
+    R32_PWR_CTLR |= 1 << 8;
+    R16_BKP_DATAR10 = 0;
+
     // PLL setup: system clock 96 MHz
     R32_EXTEN_CTR |= (1 << 4);  // sneaky div2
     R32_RCC_CFGR0 = (R32_RCC_CFGR0 & ~0xff0000) | (0b01101000 << 16);
@@ -855,6 +862,8 @@ __attribute__((naked)) int main(void) {
                         R32_EXTEN_CTR &= ~(1 << 1);
                         if (ADDRESS_HI >> 8 == 0x20) {
                             // ram boot
+                            R32_RCC_CFGR0 = (R32_RCC_CFGR0 & ~0b11) | 0b00;
+                            while ((R32_RCC_CFGR0 & 0b1100) != 0b0000) {}
                             ((void (*)())0x20000000)();
                         } else {
                             // wtf why does this work and the other stuff doesn't?

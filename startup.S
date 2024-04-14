@@ -19,6 +19,12 @@
 
 .global _start
 _start:
+    // Weird things seem to happen if you fall off the end of flash
+    la a0, _bootloader_limit
+    lw a0, (a0)
+    la a1, 0xe339e339
+    beq a0, a1, _enter_bootloader
+
     // Use Adafruit(?)-inspired boot entry, namely "double-reset in short succession to enter bootloader"
     // 1. If the reset wasn't triggered by the nRST pin, go to application
     // 2. On nRST, if not first reset, go to bootloader
@@ -45,7 +51,7 @@ _start:
     la a3, R16_BKP_DATAR10
     lhu a1, (a3)
     la a2, BOOT_MAGIC_APP_IMMEDIATELY
-    beq a1, a2, _enter_application_code_magic
+    beq a1, a2, _enter_application_code
     la a2, BOOT_MAGIC_BOOTLOADER
     beq a1, a2, _enter_bootloader
 
@@ -68,9 +74,8 @@ _start:
     sw zero, (STK_SR-SYSTICK_BASE)(a0)
     // If the delay expires, boot the application after all
 
-_enter_application_code_magic:
-    sh zero, (a3)
 _enter_application_code:
+    sh zero, (a3)
     // Clear all of these enables that we had set
     la a0, R32_PWR_CTLR
     lw a1, (a0)
@@ -85,8 +90,6 @@ _enter_application_code:
     j _bootloader_limit
 
 _enter_bootloader:
-    sh zero, (a3)
-
     // Set up global pointer
 .option push
 .option norelax
