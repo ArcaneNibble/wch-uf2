@@ -166,7 +166,8 @@ extern volatile uint32_t            USB_EP1_IN[32];
 #define CTRL_XFER_STATE     USB_UF2_FIELDS_STASH(16)
 #define CTRL_XFER_STATE_X   USB_UF2_FIELDS_STASH(18)
 #define CTRL_XFER_DESC_SZ   USB_UF2_FIELDS_STASH(20)
-#define USB_SECTOR_STASH(offs)      (*(uint32_t *)(0x40006200 + 2 * (offs)))
+extern volatile uint32_t            USB_SECTOR_STASH[128];
+// #define USB_SECTOR_STASH(offs)      (*(uint32_t *)(0x40006200 + 2 * (offs)))
 
 #define USB_EPTYPE_BULK     0b00
 #define USB_EPTYPE_CONTROL  0b01
@@ -285,13 +286,13 @@ static void synthesize_block(uint32_t block, uint32_t piece) {
             sector_sz_16bits = (sizeof(INDEX_HTM) + 1) / 2;
         }
 
-        uint32_t cur_offset_16bits = piece * 64 / 2;
+        uint32_t cur_offset_16bits = piece * 32;
 
         int usbofs, secofs;
         for (usbofs = 0, secofs = cur_offset_16bits; secofs < sector_sz_16bits; usbofs++, secofs++)
             USB_EP1_IN_OLDOLD(usbofs * 2) = sector_ptr[secofs];
         for (; usbofs < 32; usbofs++)
-            USB_EP1_IN_OLDOLD(usbofs * 2) = 0;
+            USB_EP1_IN[usbofs] = 0;
 
         if (block == 0 && piece == 7)
             USB_EP1_IN[31] = 0xaa55;
@@ -735,7 +736,7 @@ __attribute__((naked)) int main(void) {
                                         USB_UF2_FIELDS_STASH(10) = USB_EP1_OUT[7];
 
                                         for (int i = 0; i < 16; i++)
-                                            USB_SECTOR_STASH(i * 2) = USB_EP1_OUT[16 + i];
+                                            USB_SECTOR_STASH[i] = USB_EP1_OUT[16 + i];
 
                                         msc_state += 0x1000;
                                     }
@@ -743,10 +744,10 @@ __attribute__((naked)) int main(void) {
                             }
                         } else if (piece >= 1 && piece <= 3) {
                             for (int i = 0; i < 32; i++)
-                                USB_SECTOR_STASH(32 + (piece - 1) * 64 + i * 2) = USB_EP1_OUT[i];
+                                USB_SECTOR_STASH[16 + (piece - 1) * 32 + i] = USB_EP1_OUT[i];
                         } else if (piece == 4) {
                             for (int i = 0; i < 16; i++)
-                                USB_SECTOR_STASH(224 + i * 2) = USB_EP1_OUT[i];
+                                USB_SECTOR_STASH[112 + i] = USB_EP1_OUT[i];
                         }
 
                         if (piece != 7) {
@@ -779,7 +780,7 @@ __attribute__((naked)) int main(void) {
                                     R32_FLASH_CTLR = 1 << 16;
                                     for (int i = 0; i < 64; i++) {
                                         volatile uint32_t *addr = (volatile uint32_t *)(address + i * 4);
-                                        uint32_t val = USB_SECTOR_STASH(i * 4) | (USB_SECTOR_STASH(i * 4 + 2) << 16);
+                                        uint32_t val = USB_SECTOR_STASH[i * 2] | (USB_SECTOR_STASH[i * 2 + 1] << 16);
                                         *addr = val;
                                         while (R32_FLASH_STATR & 2) {}
                                     }

@@ -38,6 +38,7 @@ SECTIONS
     PROVIDE( USB_EP0_IN         = 0x40006030 );
     PROVIDE( USB_EP1_OUT        = 0x40006040 );
     PROVIDE( USB_EP1_IN         = 0x400060C0 );
+    PROVIDE( USB_SECTOR_STASH   = 0x40006200 );
 
     PROVIDE(_data_lma = .);
 
