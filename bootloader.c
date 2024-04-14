@@ -158,7 +158,6 @@ extern volatile uint32_t            USB_EP0_OUT[4];
 extern volatile uint32_t            USB_EP0_IN[4];
 extern volatile uint32_t            USB_EP1_OUT[32];
 extern volatile uint32_t            USB_EP1_IN[32];
-#define USB_EP1_IN_OLDOLD(offs)    (*(volatile uint32_t *)(0x400060C0 + 2 * (offs)))
 
 extern uint32_t CSWTAG_LO;
 extern uint32_t CSWTAG_HI;
@@ -296,8 +295,8 @@ static void synthesize_block(uint32_t block, uint32_t piece) {
         uint32_t cur_offset_16bits = piece * 32;
 
         int usbofs, secofs;
-        for (usbofs = 0, secofs = cur_offset_16bits; secofs < sector_sz_16bits; usbofs++, secofs++)
-            USB_EP1_IN_OLDOLD(usbofs * 2) = sector_ptr[secofs];
+        for (usbofs = 0, secofs = cur_offset_16bits; usbofs < 32 && secofs < sector_sz_16bits; usbofs++, secofs++)
+            USB_EP1_IN[usbofs] = sector_ptr[secofs];
         for (; usbofs < 32; usbofs++)
             USB_EP1_IN[usbofs] = 0;
 
