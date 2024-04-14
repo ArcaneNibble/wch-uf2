@@ -32,6 +32,11 @@ SECTIONS
         . = ALIGN(4);
     } >FLASH
 
+    PROVIDE( __global_pointer$  = 0x40006000 );
+    PROVIDE( USB_DESCS          = 0x40006000 );
+    PROVIDE( USB_EP0_OUT        = 0x40006020 );
+    PROVIDE( USB_EP0_IN         = 0x40006030 );
+
     PROVIDE(_data_lma = .);
 
     .data :
@@ -41,7 +46,6 @@ SECTIONS
         *(.data .data.*)
         *(.gnu.linkonce.d.*)
         . = ALIGN(4);
-        PROVIDE( __global_pointer$ = . + 0x800 );
         *(.sdata .sdata.*)
         *(.sdata2.*)
         *(.gnu.linkonce.s.*)

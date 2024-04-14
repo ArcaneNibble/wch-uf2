@@ -153,9 +153,9 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
 #define ESIG_UNIID(x)       (*(volatile uint8_t*)(0x1FFFF7E8 + (x)))
 // XXX manual claims 96 bits but only 64 bits seem to actually be programmed?
 
-#define USB_DESCS           ((volatile USBD_descriptor*)0x40006000)
-#define USB_EP0_OUT(offs)   (*(volatile uint32_t *)(0x40006020 + 2 * (offs)))
-#define USB_EP0_IN(offs)    (*(volatile uint32_t *)(0x40006030 + 2 * (offs)))
+extern volatile USBD_descriptor     USB_DESCS[2];
+extern volatile uint32_t            USB_EP0_OUT[4];
+extern volatile uint32_t            USB_EP0_IN[4];
 #define USB_EP1_OUT(offs)   (*(volatile uint32_t *)(0x40006040 + 2 * (offs)))
 #define USB_EP1_IN(offs)    (*(volatile uint32_t *)(0x400060C0 + 2 * (offs)))
 
@@ -393,18 +393,18 @@ __attribute__((naked)) int main(void) {
             if ((ep_status & (1 << 15)) && (epidx == 0)) {
                 if (ep_status & (1 << 11)) {
                     // setup, STAT_RX and STAT_TX both now NAK
-                    uint16_t bRequest_bmRequestType = USB_EP0_OUT(0);
-                    uint32_t wLength = USB_EP0_OUT(6);
+                    uint16_t bRequest_bmRequestType = USB_EP0_OUT[0];
+                    uint32_t wLength = USB_EP0_OUT[3];
                     if (bRequest_bmRequestType == 0x0080 || bRequest_bmRequestType == 0x0081) {
                         // GET_STATUS
-                        USB_EP0_IN(0) = 0;
+                        USB_EP0_IN[0] = 0;
                         USB_DESCS[0].count_tx = min(2, wLength);
                         CTRL_XFER_STATE = STATE_CTRL_SIMPLE_IN;
                         set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
                     } else if (bRequest_bmRequestType == 0x0102) {
                         // CLEAR_FEATURE
                         // XXX how is this supposed to work?
-                        uint32_t wIndex = USB_EP0_OUT(4);
+                        uint32_t wIndex = USB_EP0_OUT[2];
                         if (wIndex == 0x81) {
                             make_msc_csw(dCSWTag, 1);
                             msc_state = (msc_state & 0xffffff00) | STATE_SENT_CSW;
@@ -418,13 +418,13 @@ __attribute__((naked)) int main(void) {
                         }
                     } else if (bRequest_bmRequestType == 0x0500) {
                         // SET_ADDRESS
-                        CTRL_XFER_STATE_X = USB_EP0_OUT(2);
+                        CTRL_XFER_STATE_X = USB_EP0_OUT[1];
                         CTRL_XFER_STATE = STATE_SET_ADDR;
                         USB_DESCS[0].count_tx = 0;
                         set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
                     } else if (bRequest_bmRequestType == 0x0680) {
                         // GET_DESCRIPTOR
-                        uint32_t wValue = USB_EP0_OUT(2);
+                        uint32_t wValue = USB_EP0_OUT[1];
                         if (wValue == 0x0100 || wValue == 0x0200 || wValue == 0x0301 || wValue == 0x0302) {
                             if (wValue == 0x0100) {
                                 outputting_desc = USB_DEV_DESC;
@@ -441,7 +441,7 @@ __attribute__((naked)) int main(void) {
                             }
 
                             for (int i = 0; i < 8; i+=2)
-                                USB_EP0_IN(i) = *((uint16_t*)(outputting_desc + i));
+                                USB_EP0_IN[i / 2] = *((uint16_t*)(outputting_desc + i));
                             if (wLength < 8) {
                                 USB_DESCS[0].count_tx = wLength;
                                 CTRL_XFER_STATE_X = 0;
@@ -454,16 +454,16 @@ __attribute__((naked)) int main(void) {
                             set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
                         } else if (wValue == 0x0300) {
                             // string LANGIDs
-                            USB_EP0_IN(0) = 0x0304;
-                            USB_EP0_IN(2) = 0x0409;
+                            USB_EP0_IN[0] = 0x0304;
+                            USB_EP0_IN[1] = 0x0409;
                             USB_DESCS[0].count_tx = min(4, wLength);
                             CTRL_XFER_STATE = STATE_CTRL_SIMPLE_IN;
                             set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
                         } else if (wValue == 0x0303) {
-                            USB_EP0_IN(0) = 0x0300 | (24 * 2 + 2);
-                            USB_EP0_IN(2) = HEXLUT[ESIG_UNIID(0) >> 4];
-                            USB_EP0_IN(4) = HEXLUT[ESIG_UNIID(0) & 0xf];
-                            USB_EP0_IN(6) = HEXLUT[ESIG_UNIID(1) >> 4];
+                            USB_EP0_IN[0] = 0x0300 | (24 * 2 + 2);
+                            USB_EP0_IN[1] = HEXLUT[ESIG_UNIID(0) >> 4];
+                            USB_EP0_IN[2] = HEXLUT[ESIG_UNIID(0) & 0xf];
+                            USB_EP0_IN[3] = HEXLUT[ESIG_UNIID(1) >> 4];
                             if (wLength < 8) {
                                 USB_DESCS[0].count_tx = wLength;
                                 CTRL_XFER_STATE_X = 0;
@@ -480,13 +480,13 @@ __attribute__((naked)) int main(void) {
                         }
                     } else if (bRequest_bmRequestType == 0x0880) {
                         // GET_CONFIGURATION
-                        USB_EP0_IN(0) = ACTIVE_CONFIG;
+                        USB_EP0_IN[0] = ACTIVE_CONFIG;
                         USB_DESCS[0].count_tx = min(1, wLength);
                         CTRL_XFER_STATE = STATE_CTRL_SIMPLE_IN;
                         set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
                     } else if (bRequest_bmRequestType == 0x0900) {
                         // SET_CONFIGURATION
-                        uint32_t wValue = USB_EP0_OUT(2);
+                        uint32_t wValue = USB_EP0_OUT[1];
                         if (wValue == 0 || wValue == 1) {
                             ACTIVE_CONFIG = wValue;
                             USB_DESCS[0].count_tx = 0;
@@ -504,7 +504,7 @@ __attribute__((naked)) int main(void) {
                         }
                     } else if (bRequest_bmRequestType == 0x0A81) {
                         // GET_INTERFACE
-                        USB_EP0_IN(0) = 0;
+                        USB_EP0_IN[0] = 0;
                         USB_DESCS[0].count_tx = min(1, wLength);
                         CTRL_XFER_STATE = STATE_CTRL_SIMPLE_IN;
                         set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
@@ -537,7 +537,7 @@ __attribute__((naked)) int main(void) {
                                 if (byte_pos + bytes > CTRL_XFER_DESC_SZ)
                                     bytes = CTRL_XFER_DESC_SZ - byte_pos;
                                 for (int i = 0; i < bytes; i+=2)
-                                    USB_EP0_IN(i) = *((uint16_t*)(outputting_desc + byte_pos + i));
+                                    USB_EP0_IN[i / 2] = *((uint16_t*)(outputting_desc + byte_pos + i));
                                 if (bytes < 8) {
                                     USB_DESCS[0].count_tx = bytes;
                                     CTRL_XFER_STATE_X = 0;
@@ -564,7 +564,7 @@ __attribute__((naked)) int main(void) {
                                 if (str_pos + ascii_bytes > 24)
                                     ascii_bytes = 24 - str_pos;
                                 for (int i = 0; i < ascii_bytes; i++)
-                                    USB_EP0_IN(i * 2) = HEXLUT[(ESIG_UNIID((str_pos + i) / 2) >> ((1 - ((str_pos + i) % 2)) * 4)) & 0xf];
+                                    USB_EP0_IN[i] = HEXLUT[(ESIG_UNIID((str_pos + i) / 2) >> ((1 - ((str_pos + i) % 2)) * 4)) & 0xf];
                                 if (ascii_bytes < 4) {
                                     USB_DESCS[0].count_tx = bytes_left;
                                     CTRL_XFER_STATE_X = 0;
