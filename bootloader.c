@@ -173,8 +173,8 @@ extern uint32_t CTRL_XFER_STATE_X;
 extern uint32_t CTRL_XFER_DESC_SZ;
 extern uint32_t USB_SECTOR_STASH[128];
 
-#define MAX_AUTO_BOOT_BLOCKS    (36 * 16 - 1)
-extern uint32_t UF2_GOT_BLOCKS[36];
+#define MAX_AUTO_BOOT_BLOCKS    (38 * 16 - 1)
+extern uint32_t UF2_GOT_BLOCKS[38];
 
 #define USB_EPTYPE_BULK     0b00
 #define USB_EPTYPE_CONTROL  0b01
@@ -379,7 +379,7 @@ __attribute__((naked)) int main(void) {
     // [15:0] = blocks left
     uint32_t scsi_xfer_lba_blocks = 0;
 
-    UF2_GOT_BLOCKS[35] = 0;
+    UF2_GOT_BLOCKS[37] = 0;
 
     while (1) {
         uint32_t usb_int_status = R16_USBD_ISTR;
@@ -775,7 +775,7 @@ __attribute__((naked)) int main(void) {
                                     uint32_t blocknum = BLOCKNUM_LO;
                                     uint32_t totblocks = TOTBLOCKS_LO;
 
-                                    if (UF2_GOT_BLOCKS[35] & 0x8000) {
+                                    if (UF2_GOT_BLOCKS[37] & 0x8000) {
                                         // not first uf2 block
                                         UF2_GOT_BLOCKS[blocknum / 16] |= 1 << (blocknum % 16);
                                     } else {
