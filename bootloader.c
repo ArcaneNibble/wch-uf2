@@ -296,9 +296,6 @@ __attribute__((always_inline)) static inline void synthesize_block(uint32_t bloc
 }
 
 __attribute__((naked)) int main(void) {
-    // Don't reenter bootloader again
-    R16_BKP_DATAR10 = 0;
-
     // PLL setup: system clock 96 MHz
     R32_EXTEN_CTR |= (1 << 4);  // sneaky div2
     R32_RCC_CFGR0 = (R32_RCC_CFGR0 & ~0xff0000) | (0b01101000 << 16);

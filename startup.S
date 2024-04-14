@@ -28,7 +28,7 @@ _start:
     la a0, RCC_BASE
     lw a1, (R32_RCC_RSTSCKR-RCC_BASE)(a0)
     slli a1, a1, (31 - 26)
-    bgez a1, _enter_application_code     // if PINRSTF == 0
+    bgez a1, _bootloader_limit      // if PINRSTF == 0
 
     // Enable BKP and PWR clock
     lw a1, (R32_RCC_APB1PCENR-RCC_BASE)(a0)
@@ -66,7 +66,6 @@ _start:
     // Delay done, clear systick and magic
     sw zero, (STK_CTLR-SYSTICK_BASE)(a0)
     sw zero, (STK_SR-SYSTICK_BASE)(a0)
-    sh zero, (a3)
     // If the delay expires, boot the application after all
 
 _enter_application_code_magic:
@@ -86,6 +85,7 @@ _enter_application_code:
     j _bootloader_limit
 
 _enter_bootloader:
+    sh zero, (a3)
     la gp, 0
     la sp, 0
 
