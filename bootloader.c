@@ -161,14 +161,9 @@ extern volatile uint32_t            USB_EP1_IN[32];
 
 extern uint32_t CSWTAG_LO;
 extern uint32_t CSWTAG_HI;
-extern uint32_t BLOCKNUM_LO;
-extern uint32_t BLOCKNUM_HI;
-extern uint32_t TOTBLOCKS_LO;
-extern uint32_t TOTBLOCKS_HI;
 extern uint32_t ADDRESS_LO;
 extern uint32_t ADDRESS_HI;
 extern uint32_t ACTIVE_CONFIG;
-extern uint32_t UF2_BLOCKS_LEFT;
 extern uint32_t CTRL_XFER_STATE;
 extern uint32_t CTRL_XFER_STATE_X;
 extern uint32_t CTRL_XFER_DESC_SZ;
@@ -375,8 +370,6 @@ __attribute__((naked)) int main(void) {
     // [31:16] = ignored
     // [15:0] = blocks left
     uint32_t scsi_xfer_lba_blocks = 0;
-
-    UF2_BLOCKS_LEFT = 0;
 
     while (1) {
         uint32_t usb_int_status = R16_USBD_ISTR;
@@ -600,7 +593,6 @@ __attribute__((naked)) int main(void) {
                             CSWTAG_HI = USB_EP1_OUT[3];
                             uint32_t dCSWTag = CSWTAG_LO | (CSWTAG_HI << 16);
                             uint32_t dCBWDataTransferLength = USB_EP1_OUT[4] | (USB_EP1_OUT[5] << 16);
-                            uint32_t bmCBWFlags = USB_EP1_OUT[6] & 0xff;
                             uint32_t operation_code = USB_EP1_OUT[7] >> 8;
 
                             switch (operation_code) {
@@ -736,10 +728,6 @@ __attribute__((naked)) int main(void) {
                                 if (!(flags & 1) && bytes == 256 && (address & 0xff) == 0) {
                                     if (flags & (0x2000) && familyid == FAMILY_ID) {
                                         // uf2 good so far!
-                                        BLOCKNUM_LO = USB_EP1_OUT[10];
-                                        BLOCKNUM_HI = USB_EP1_OUT[11];
-                                        TOTBLOCKS_LO = USB_EP1_OUT[12];
-                                        TOTBLOCKS_HI = USB_EP1_OUT[13];
                                         ADDRESS_LO = USB_EP1_OUT[6];
                                         ADDRESS_HI = USB_EP1_OUT[7];
 
@@ -766,14 +754,7 @@ __attribute__((naked)) int main(void) {
                             if (msc_state & 0x1000) {
                                 if (USB_EP1_OUT[30] == 0x6F30 && USB_EP1_OUT[31] == 0x0AB1) {
                                     // uf2 all magics are good!
-                                    uint32_t blocknum = BLOCKNUM_LO | (BLOCKNUM_HI << 16);
-                                    uint32_t totblocks = TOTBLOCKS_LO | (TOTBLOCKS_HI << 16);
                                     uint32_t address = ADDRESS_LO | (ADDRESS_HI << 16);
-
-                                    if (UF2_BLOCKS_LEFT == 0)
-                                        UF2_BLOCKS_LEFT = (totblocks - 1) | 0x8000;
-                                    else
-                                        UF2_BLOCKS_LEFT--;
 
                                     // todo flash the file
                                     // todo ram download mode
@@ -803,10 +784,7 @@ __attribute__((naked)) int main(void) {
                             if (blocks_left == 0) {
                                 uint32_t dCSWTag = CSWTAG_LO | (CSWTAG_HI << 16);
                                 make_msc_csw(dCSWTag, 0);
-                                if (UF2_BLOCKS_LEFT == 0x8000)
-                                    msc_state = STATE_SENT_CSW_REBOOT;
-                                else
-                                    msc_state = STATE_SENT_CSW;
+                                msc_state = STATE_SENT_CSW;
                             } else {
                                 scsi_xfer_lba_blocks = blocks_left;
                                 set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
