@@ -174,6 +174,7 @@ extern uint32_t USB_SECTOR_STASH[128];
 
 #define USB_STAT_DISABLED   0b00
 #define USB_STAT_STALL      0b01
+#define USB_STAT_NAK        0b10
 #define USB_STAT_ACK        0b11
 
 #define R16_BKP_DATAR10     (*(volatile uint32_t*)0x40006C28)
@@ -694,7 +695,7 @@ __attribute__((naked)) int main(void) {
                                             msc_state = STATE_SEND_MORE_READ;
                                         } else {
                                             // WRITE
-                                            set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
+                                            set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_NAK, 0, 0);
                                             msc_state = STATE_WAITING_FOR_WRITE;
                                         }
                                         break;
@@ -747,7 +748,7 @@ __attribute__((naked)) int main(void) {
                         }
 
                         if (piece != 7) {
-                            set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
+                            set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_NAK, 0, 0);
                             msc_state += 0x100;
                         } else {
                             // full sector is done
@@ -787,7 +788,7 @@ __attribute__((naked)) int main(void) {
                                 msc_state = STATE_SENT_CSW;
                             } else {
                                 scsi_xfer_lba_blocks = blocks_left;
-                                set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
+                                set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_NAK, 0, 0);
                                 msc_state = STATE_WAITING_FOR_WRITE;
                             }
                         }
