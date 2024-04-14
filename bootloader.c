@@ -242,51 +242,40 @@ __attribute__((always_inline)) static inline uint32_t min(uint32_t a, uint32_t b
     return b;
 }
 
-__attribute__((always_inline)) static inline void synthesize_block(uint32_t block, uint32_t piece) {
-    if (block == 0) {
-        if (piece == 0) {
-            for (int i = 0; i < sizeof(BOOT_SECTOR) / 2; i++)
-                USB_EP1_IN(i * 2) = ((uint16_t*)BOOT_SECTOR)[i];
-            for (int i = sizeof(BOOT_SECTOR) / 2; i < 32; i++)
-                USB_EP1_IN(i * 2) = 0;
-        } else {
-            for (int i = 0; i < 32; i++)
-                USB_EP1_IN(i * 2) = 0;
+static void synthesize_block(uint32_t block, uint32_t piece) {
+    if (block == 0 || block == 65 || block == 66 || block == 67) {
+        const uint16_t *sector_ptr;
+        uint32_t sector_sz_16bits;
+        if (block == 0) {
+            sector_ptr = (uint16_t*)BOOT_SECTOR;
+            sector_sz_16bits = (sizeof(BOOT_SECTOR) + 1) / 2;
+        } else if (block == 65) {
+            sector_ptr = (uint16_t*)ROOT_DIR;
+            sector_sz_16bits = (sizeof(ROOT_DIR) + 1) / 2;
+        } else if (block == 66) {
+            sector_ptr = (uint16_t*)INFO_UF2;
+            sector_sz_16bits = (sizeof(INFO_UF2) + 1) / 2;
+        } else if (block == 67) {
+            sector_ptr = (uint16_t*)INDEX_HTM;
+            sector_sz_16bits = (sizeof(INDEX_HTM) + 1) / 2;
         }
 
-        if (piece == 3) {
+        uint32_t cur_offset_16bits = piece * 64 / 2;
+
+        int usbofs, secofs;
+        for (usbofs = 0, secofs = cur_offset_16bits; secofs < sector_sz_16bits; usbofs++, secofs++)
+            USB_EP1_IN(usbofs * 2) = sector_ptr[secofs];
+        for (; usbofs < 32; usbofs++)
+            USB_EP1_IN(usbofs * 2) = 0;
+
+        if (block == 0 && piece == 7)
             USB_EP1_IN(62) = 0xaa55;
-        }
     } else if (block == 1 && piece == 0) {
         USB_EP1_IN(0) = 0xfff8;
         USB_EP1_IN(2) = 0xffff;
         USB_EP1_IN(4) = 0xfff8;
         USB_EP1_IN(6) = 0xfff8;
         for (int i = 4; i < 32; i++)
-            USB_EP1_IN(i * 2) = 0;
-    } else if (block == 65 && piece == 0) {
-        for (int i = 0; i < 32; i++)
-            USB_EP1_IN(i * 2) = ((uint16_t*)ROOT_DIR)[i];
-    } else if (block == 65 && piece == 1) {
-        for (int i = 0; i < 16; i++)
-            USB_EP1_IN(i * 2) = ((uint16_t*)ROOT_DIR)[32+ i];
-        for (int i = 16; i < 32; i++)
-            USB_EP1_IN(i * 2) = 0;
-    } else if (block == 66 && piece == 0) {
-        for (int i = 0; i < 32; i++)
-            USB_EP1_IN(i * 2) = ((uint16_t*)INFO_UF2)[i];
-    } else if (block == 66 && piece == 1) {
-        for (int i = 0; i < (sizeof(INFO_UF2) - 64 + 1) / 2; i++)
-            USB_EP1_IN(i * 2) = ((uint16_t*)INFO_UF2)[32 + i];
-        for (int i = (sizeof(INFO_UF2) - 64 + 1) / 2; i < 32; i++)
-            USB_EP1_IN(i * 2) = 0;
-    } else if (block == 67 && piece == 0) {
-        for (int i = 0; i < 32; i++)
-            USB_EP1_IN(i * 2) = ((uint16_t*)INDEX_HTM)[i];
-    } else if (block == 67 && piece == 1) {
-        for (int i = 0; i < (sizeof(INDEX_HTM) - 64 + 1) / 2; i++)
-            USB_EP1_IN(i * 2) = ((uint16_t*)INDEX_HTM)[32 + i];
-        for (int i = (sizeof(INDEX_HTM) - 64 + 1) / 2; i < 32; i++)
             USB_EP1_IN(i * 2) = 0;
     } else {
         for (int i = 0; i < 32; i++)
@@ -297,7 +286,7 @@ __attribute__((always_inline)) static inline void synthesize_block(uint32_t bloc
     set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
 }
 
-void make_msc_csw(uint32_t dCSWTag, uint32_t error) {
+static void make_msc_csw(uint32_t dCSWTag, uint32_t error) {
     USB_EP1_IN(0) = 0x5355;
     USB_EP1_IN(2) = 0x5342;
     USB_EP1_IN(4) = dCSWTag;
