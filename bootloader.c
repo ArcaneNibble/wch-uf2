@@ -20,9 +20,9 @@ typedef struct USBD_descriptor {
 // +0xc0
 //      EP 1 IN (64 bytes)
 // +0x140
-//      <unused>
-// +0x1cc
-//      ram for stashing data
+//      ram for checking download completion
+// +0x1d0
+//      ram for stashing variables
 // +0x200
 //      <256-byte flash page buffer>
 
@@ -161,6 +161,10 @@ extern volatile uint32_t            USB_EP0_IN[4];
 extern volatile uint32_t            USB_EP1_OUT[32];
 extern volatile uint32_t            USB_EP1_IN[32];
 
+extern uint32_t BLOCKNUM_LO;
+extern uint32_t BLOCKNUM_HI;
+extern uint32_t TOTBLOCKS_LO;
+extern uint32_t TOTBLOCKS_HI;
 extern uint32_t CSWTAG_LO;
 extern uint32_t CSWTAG_HI;
 extern uint32_t ADDRESS_LO;
@@ -170,6 +174,9 @@ extern uint32_t CTRL_XFER_STATE;
 extern uint32_t CTRL_XFER_STATE_X;
 extern uint32_t CTRL_XFER_DESC_SZ;
 extern uint32_t USB_SECTOR_STASH[128];
+
+#define MAX_AUTO_BOOT_BLOCKS    (36 * 16 - 1)
+extern uint32_t UF2_GOT_BLOCKS[36];
 
 #define USB_EPTYPE_BULK     0b00
 #define USB_EPTYPE_CONTROL  0b01
@@ -373,6 +380,8 @@ __attribute__((naked)) int main(void) {
     // [31:16] = ignored
     // [15:0] = blocks left
     uint32_t scsi_xfer_lba_blocks = 0;
+
+    UF2_GOT_BLOCKS[35] = 0;
 
     while (1) {
         uint32_t usb_int_status = R16_USBD_ISTR;
@@ -736,6 +745,10 @@ __attribute__((naked)) int main(void) {
                                         if ((!(flags & 1) && (address >> 24) == 0x08) || ((flags & 1) && (address >> 24) == 0x20)) {
                                             ADDRESS_LO = USB_EP1_OUT[6];
                                             ADDRESS_HI = USB_EP1_OUT[7];
+                                            BLOCKNUM_LO = USB_EP1_OUT[10];
+                                            BLOCKNUM_HI = USB_EP1_OUT[11];
+                                            TOTBLOCKS_LO = USB_EP1_OUT[12];
+                                            TOTBLOCKS_HI = USB_EP1_OUT[13];
 
                                             for (int i = 0; i < 16; i++)
                                                 USB_SECTOR_STASH[i] = USB_EP1_OUT[16 + i];
@@ -762,6 +775,24 @@ __attribute__((naked)) int main(void) {
                                 if (USB_EP1_OUT[30] == 0x6F30 && USB_EP1_OUT[31] == 0x0AB1) {
                                     // uf2 all magics are good!
                                     uint32_t address = ADDRESS_LO | (ADDRESS_HI << 16);
+                                    uint32_t blocknum = BLOCKNUM_LO | (BLOCKNUM_HI << 16);
+                                    uint32_t totblocks = TOTBLOCKS_LO | (TOTBLOCKS_HI << 16);
+
+                                    if (UF2_GOT_BLOCKS[35] & 0x8000) {
+                                        // not first uf2 block
+                                        UF2_GOT_BLOCKS[blocknum / 16] |= 1 << (blocknum % 16);
+                                    } else {
+                                        // first uf2 block, or too big
+                                        if (totblocks <= MAX_AUTO_BOOT_BLOCKS) {
+                                            for (int i = 0; i < 36; i++)
+                                                UF2_GOT_BLOCKS[i] = 0;
+                                            for (int i = totblocks; i <= MAX_AUTO_BOOT_BLOCKS; i++) {
+                                                // deliberate off-by-1 to set high bit
+                                                UF2_GOT_BLOCKS[i / 16] |= 1 << (i % 16);
+                                            }
+                                            UF2_GOT_BLOCKS[blocknum / 16] |= 1 << (blocknum % 16);
+                                        }
+                                    }
 
                                     if (address >= 0x08000000 + BOOTLOADER_RESERVED_SZ_BYTES &&
                                         address <= 0x08000000 + THIS_CHIP_FLASH_MAX_SZ_BYTES - 256) {
@@ -799,7 +830,13 @@ __attribute__((naked)) int main(void) {
                             if (blocks_left == 0) {
                                 uint32_t dCSWTag = CSWTAG_LO | (CSWTAG_HI << 16);
                                 make_msc_csw(dCSWTag, 0);
-                                msc_state = STATE_SENT_CSW;
+                                uint32_t all_blocks = 0xffff;
+                                for (int i = 0; i < 36; i++)
+                                    all_blocks &= UF2_GOT_BLOCKS[i];
+                                if (all_blocks == 0xffff)
+                                    msc_state = STATE_SENT_CSW_REBOOT;
+                                else
+                                    msc_state = STATE_SENT_CSW;
                             } else {
                                 scsi_xfer_lba_blocks = blocks_left;
                                 set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_NAK, 0, 0);
