@@ -161,6 +161,8 @@ extern volatile uint32_t            USB_EP0_IN[4];
 extern volatile uint32_t            USB_EP1_OUT[32];
 extern volatile uint32_t            USB_EP1_IN[32];
 
+extern uint32_t SCSI_XFER_CUR_LBA;
+extern uint32_t SCSI_XFER_BLK_LEFT;
 extern uint32_t BLOCKNUM_LO;
 extern uint32_t TOTBLOCKS_LO;
 extern uint32_t CSWTAG_LO;
@@ -173,8 +175,8 @@ extern uint32_t CTRL_XFER_STATE_X;
 extern uint32_t CTRL_XFER_DESC_SZ;
 extern uint32_t USB_SECTOR_STASH[128];
 
-#define MAX_AUTO_BOOT_BLOCKS    (38 * 16 - 1)
-extern uint32_t UF2_GOT_BLOCKS[38];
+#define MAX_AUTO_BOOT_BLOCKS    (36 * 16 - 1)
+extern uint32_t UF2_GOT_BLOCKS[36];
 
 #define USB_EPTYPE_BULK     0b00
 #define USB_EPTYPE_CONTROL  0b01
@@ -245,6 +247,12 @@ __attribute__((always_inline)) static inline void set_ep_mode(uint32_t epidx, ui
         cur_stats = val & 0x3030;
     uint32_t want_stats = (stat_rx << 12) | (stat_tx) << 4;
     R16_USBD_EPR[epidx] = epaddr | (eptype << 9) | xtra | (cur_stats ^ want_stats);
+}
+static void set_ep0_ack_in(void) {
+    set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+}
+static void set_ep0_stall(void) {
+    set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
 }
 
 __attribute__((always_inline)) static inline uint32_t min(uint32_t a, uint32_t b) {
@@ -377,16 +385,15 @@ __attribute__((naked)) int main(void) {
     // when writing:
     // [31:16] = ignored
     // [15:0] = blocks left
-    uint32_t scsi_xfer_lba_blocks = 0;
 
-    UF2_GOT_BLOCKS[37] = 0;
+    UF2_GOT_BLOCKS[35] = 0;
 
     while (1) {
         uint32_t usb_int_status = R16_USBD_ISTR;
         if (usb_int_status & (1 << 10)) {
             // RESET
             // set all to STALL, SETUP will come in nonetheless
-            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+            set_ep0_stall();
             set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_DISABLED, USB_STAT_DISABLED, 0, 0);
             R16_USBD_DADDR = 0x80;
             R16_USBD_CNTR = 0;
@@ -410,7 +417,7 @@ __attribute__((naked)) int main(void) {
                         USB_EP0_IN[0] = 0;
                         USB_DESCS[0].count_tx = min(2, wLength);
                         CTRL_XFER_STATE = STATE_CTRL_SIMPLE_IN;
-                        set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                        set_ep0_ack_in();
                     } else if (bRequest_bmRequestType == 0x0102) {
                         // CLEAR_FEATURE
                         // XXX how is this supposed to work?
@@ -419,20 +426,20 @@ __attribute__((naked)) int main(void) {
                             uint32_t dCSWTag = CSWTAG_LO | (CSWTAG_HI << 16);
                             make_msc_csw(dCSWTag, 1);
                             msc_state = (msc_state & 0xffffff00) | STATE_SENT_CSW;
-                            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                            set_ep0_ack_in();
                         } else if (wIndex == 0x01) {
                             set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
                             msc_state = (msc_state & 0xffffff00) | STATE_WANT_CBW;
-                            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                            set_ep0_ack_in();
                         } else {
-                            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+                            set_ep0_stall();
                         }
                     } else if (bRequest_bmRequestType == 0x0500) {
                         // SET_ADDRESS
                         CTRL_XFER_STATE_X = USB_EP0_OUT[1];
                         CTRL_XFER_STATE = STATE_SET_ADDR;
                         USB_DESCS[0].count_tx = 0;
-                        set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                        set_ep0_ack_in();
                     } else if (bRequest_bmRequestType == 0x0680) {
                         // GET_DESCRIPTOR
                         uint32_t wValue = USB_EP0_OUT[1];
@@ -462,14 +469,14 @@ __attribute__((naked)) int main(void) {
                                 CTRL_XFER_STATE_X = (8 << 8) | (wLength - 8);
                                 CTRL_XFER_STATE = STATE_GET_DESC;
                             }
-                            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                            set_ep0_ack_in();
                         } else if (wValue == 0x0300) {
                             // string LANGIDs
                             USB_EP0_IN[0] = 0x0304;
                             USB_EP0_IN[1] = 0x0409;
                             USB_DESCS[0].count_tx = min(4, wLength);
                             CTRL_XFER_STATE = STATE_CTRL_SIMPLE_IN;
-                            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                            set_ep0_ack_in();
                         } else if (wValue == 0x0303) {
                             USB_EP0_IN[0] = 0x0300 | (24 * 2 + 2);
                             USB_EP0_IN[1] = HEXLUT[ESIG_UNIID(0) >> 4];
@@ -484,24 +491,22 @@ __attribute__((naked)) int main(void) {
                                 CTRL_XFER_STATE_X = (8 << 8) | (wLength - 8);
                                 CTRL_XFER_STATE = STATE_GET_STR_SERIAL;
                             }
-                            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                            set_ep0_ack_in();
                         } else {
                             // bad descriptor
-                            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+                            set_ep0_stall();
                         }
                     } else if (bRequest_bmRequestType == 0x0880) {
                         // GET_CONFIGURATION
                         USB_EP0_IN[0] = ACTIVE_CONFIG;
                         USB_DESCS[0].count_tx = min(1, wLength);
                         CTRL_XFER_STATE = STATE_CTRL_SIMPLE_IN;
-                        set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                        set_ep0_ack_in();
                     } else if (bRequest_bmRequestType == 0x0900) {
                         // SET_CONFIGURATION
                         uint32_t wValue = USB_EP0_OUT[1];
                         if (wValue == 0 || wValue == 1) {
                             ACTIVE_CONFIG = wValue;
-                            USB_DESCS[0].count_tx = 0;
-                            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
                             if (wValue) {
                                 // activate, allow OUT
                                 set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 1);
@@ -510,29 +515,31 @@ __attribute__((naked)) int main(void) {
                                 // deactivate
                                 set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_DISABLED, USB_STAT_DISABLED, 0, 0);
                             }
+                            USB_DESCS[0].count_tx = 0;
+                            set_ep0_ack_in();
                         } else {
-                            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+                            set_ep0_stall();
                         }
                     } else if (bRequest_bmRequestType == 0x0A81) {
                         // GET_INTERFACE
                         USB_EP0_IN[0] = 0;
                         USB_DESCS[0].count_tx = min(1, wLength);
                         CTRL_XFER_STATE = STATE_CTRL_SIMPLE_IN;
-                        set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                        set_ep0_ack_in();
                     } else {
                         // unknown
-                        set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+                        set_ep0_stall();
                     }
                 } else {
                     // back to stall for everything, expect SETUP
-                    set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+                    set_ep0_stall();
                 }
             } else if ((ep_status & (1 << 7)) && (epidx == 0)) {
                 switch (CTRL_XFER_STATE) {
                     case STATE_SET_ADDR:
                         R16_USBD_DADDR = 0x80 | (CTRL_XFER_STATE_X & 0x7f);
                         // back to stall for everything, expect SETUP
-                        set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+                        set_ep0_stall();
                         break;
                     case STATE_GET_DESC:
                     case STATE_GET_STR_SERIAL:
@@ -552,7 +559,6 @@ __attribute__((naked)) int main(void) {
                                     for (int i = 0; i < bytes; i+=2)
                                         USB_EP0_IN[i / 2] = *((uint16_t*)(outputting_desc + byte_pos + i));
                                 } else {
-                                    // todo
                                     uint32_t serial_no_pos = (byte_pos - 2) / 2;
                                     uint32_t ascii_bytes = (bytes + 1) / 2;
                                     if (serial_no_pos + ascii_bytes > 24) {
@@ -570,7 +576,7 @@ __attribute__((naked)) int main(void) {
                                     USB_DESCS[0].count_tx = 8;
                                     CTRL_XFER_STATE_X = ((byte_pos + 8) << 8) | (bytes_left - 8);
                                 }
-                                set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                set_ep0_ack_in();
                             }
                         }
                         break;
@@ -683,10 +689,11 @@ __attribute__((naked)) int main(void) {
                                             break;
                                         }
 
-                                        scsi_xfer_lba_blocks = (lba << 16) | blocks;
+                                        SCSI_XFER_BLK_LEFT = blocks;
 
                                         if (operation_code == 0x28) {
                                             // READ
+                                            SCSI_XFER_CUR_LBA = lba;
                                             synthesize_block(lba, 0);
                                             msc_state = STATE_SEND_MORE_READ;
                                         } else {
@@ -762,7 +769,7 @@ __attribute__((naked)) int main(void) {
                                     uint32_t blocknum = BLOCKNUM_LO;
                                     uint32_t totblocks = TOTBLOCKS_LO;
 
-                                    if (UF2_GOT_BLOCKS[37] & 0x8000) {
+                                    if (UF2_GOT_BLOCKS[35] & 0x8000) {
                                         // not first uf2 block
                                         UF2_GOT_BLOCKS[blocknum / 16] |= 1 << (blocknum % 16);
                                     } else {
@@ -809,9 +816,7 @@ __attribute__((naked)) int main(void) {
                                 }
                             }
 
-                            uint32_t blocks_left = scsi_xfer_lba_blocks & 0xffff;
-                            blocks_left--;
-                            if (blocks_left == 0) {
+                            if (SCSI_XFER_BLK_LEFT == 1) {
                                 uint32_t dCSWTag = CSWTAG_LO | (CSWTAG_HI << 16);
                                 make_msc_csw(dCSWTag, 0);
                                 uint32_t all_blocks = 0xffff;
@@ -822,7 +827,7 @@ __attribute__((naked)) int main(void) {
                                 else
                                     msc_state = STATE_SENT_CSW;
                             } else {
-                                scsi_xfer_lba_blocks = blocks_left;
+                                SCSI_XFER_BLK_LEFT--;
                                 set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_NAK, 0, 0);
                                 msc_state = STATE_WAITING_FOR_WRITE;
                             }
@@ -859,19 +864,16 @@ __attribute__((naked)) int main(void) {
                     case STATE_SEND_MORE_READ:
                         uint32_t piece = (msc_state >> 8) & 0b111;
                         if (piece != 7) {
-                            synthesize_block(scsi_xfer_lba_blocks >> 16, piece + 1);
+                            synthesize_block(SCSI_XFER_CUR_LBA, piece + 1);
                             msc_state += 0x100;
                         } else {
-                            uint32_t lba = scsi_xfer_lba_blocks >> 16;
-                            uint32_t blocks_left = scsi_xfer_lba_blocks & 0xffff;
-                            blocks_left--;
-                            if (blocks_left == 0) {
+                            if (SCSI_XFER_BLK_LEFT == 1) {
                                 make_msc_csw(dCSWTag, 0);
                                 msc_state = STATE_SENT_CSW;
                             } else {
-                                lba++;
-                                synthesize_block(lba, 0);
-                                scsi_xfer_lba_blocks = (lba << 16) | blocks_left;
+                                synthesize_block(SCSI_XFER_CUR_LBA + 1, 0);
+                                SCSI_XFER_CUR_LBA++;
+                                SCSI_XFER_BLK_LEFT--;
                                 msc_state = STATE_SEND_MORE_READ;
                             }
                         }
