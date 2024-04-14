@@ -362,9 +362,10 @@ __attribute__((naked)) int main(void) {
     uint32_t msc_state = STATE_WANT_CBW;
     uint32_t dCSWTag = 0;
     // when reading:
-    // [31:0] = current lba
+    // [31:16] = current lba
     // [15:0] = blocks left
     // when writing:
+    // [31:16] = ignored
     // [15:0] = blocks left
     uint32_t scsi_xfer_lba_blocks = 0;
 
@@ -654,42 +655,9 @@ __attribute__((naked)) int main(void) {
                                     msc_state = STATE_SENT_DATA_IN;
                                     break;
                                 case 0x28:
-                                    {
-                                        // READ (10)
-                                        // xxx also don't bother checking the flags
-                                        // @ 16: flags lba3
-                                        // @ 18: lba2 lba1
-                                        // @ 20: lba0 group
-                                        // @ 22: len1 len0
-                                        uint32_t lba = (USB_EP1_OUT(16) << 16) & 0xff000000;
-                                        uint32_t tmp = USB_EP1_OUT(18);
-                                        lba |= (tmp & 0xff) << 24;
-                                        lba |= (tmp & 0xff00);
-                                        tmp = USB_EP1_OUT(20);
-                                        lba |= (tmp & 0xff);
-                                        tmp = USB_EP1_OUT(22);
-                                        uint32_t blocks = (tmp >> 8) | ((tmp & 0xff) << 8);
-
-                                        if (blocks > 0x4000 || lba >= 0x4000 || (blocks + lba) > 0x4000) {
-                                            msc_state = STATE_SENT_CSW | (5 << 20) | (0x24 << 24);
-                                            set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
-                                            break;
-                                        }
-
-                                        if (blocks == 0) {
-                                            make_msc_csw(dCSWTag, 0);
-                                            msc_state = STATE_SENT_CSW;
-                                            break;
-                                        }
-
-                                        synthesize_block(lba, 0);
-                                        scsi_xfer_lba_blocks = (lba << 16) | blocks;
-                                        msc_state = STATE_SEND_MORE_READ;
-                                        break;
-                                    }
                                 case 0x2a:
                                     {
-                                        // WRITE (10)
+                                        // READ (10) / WRITE (10)
                                         // xxx also don't bother checking the flags
                                         // @ 16: flags lba3
                                         // @ 18: lba2 lba1
@@ -716,9 +684,17 @@ __attribute__((naked)) int main(void) {
                                             break;
                                         }
 
-                                        scsi_xfer_lba_blocks = blocks;
-                                        set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
-                                        msc_state = STATE_WAITING_FOR_WRITE;
+                                        scsi_xfer_lba_blocks = (lba << 16) | blocks;
+
+                                        if (operation_code == 0x28) {
+                                            // READ
+                                            synthesize_block(lba, 0);
+                                            msc_state = STATE_SEND_MORE_READ;
+                                        } else {
+                                            // WRITE
+                                            set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
+                                            msc_state = STATE_WAITING_FOR_WRITE;
+                                        }
                                         break;
                                     }
                                 default:
