@@ -368,6 +368,29 @@ __attribute__((naked)) int main(void) {
                         USB_DESCS[0].count_tx = min(2, wLength);
                         CTRL_XFER_STATE = STATE_CTRL_SIMPLE_IN;
                         set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                    } else if (bRequest_bmRequestType == 0x0102) {
+                        // CLEAR_FEATURE
+                        // XXX how is this supposed to work?
+                        uint32_t wIndex = USB_EP0_OUT(4);
+                        if (wIndex == 0x81) {
+                            USB_EP1_IN(0) = 0x5355;
+                            USB_EP1_IN(2) = 0x5342;
+                            USB_EP1_IN(4) = dCSWTag;
+                            USB_EP1_IN(6) = dCSWTag >> 16;
+                            USB_EP1_IN(8) = 0;      // xxx this isn't very right
+                            USB_EP1_IN(10) = 0;
+                            USB_EP1_IN(12) = 1;
+                            USB_DESCS[1].count_tx = 13;
+                            set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                            msc_state = (msc_state & 0xffffff00) | STATE_SENT_CSW;
+                            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                        } else if (wIndex == 0x01) {
+                            set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
+                            msc_state = (msc_state & 0xffffff00) | STATE_WANT_CBW;
+                            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                        } else {
+                            set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+                        }
                     } else if (bRequest_bmRequestType == 0x0500) {
                         // SET_ADDRESS
                         CTRL_XFER_STATE_X = USB_EP0_OUT(2);
@@ -586,7 +609,8 @@ __attribute__((naked)) int main(void) {
                                         break;
                                     }
                                     msc_state = STATE_SENT_CSW | (5 << 20) | (0x24 << 24);
-                                    goto error_csw;
+                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+                                    break;
                                 case 0x1a:
                                     // mode sense (6)
                                     USB_EP1_IN(0) = 0x0003;
@@ -664,7 +688,8 @@ __attribute__((naked)) int main(void) {
 
                                         if (blocks > 0x4000 || lba >= 0x4000 || (blocks + lba) > 0x4000) {
                                             msc_state = STATE_SENT_CSW | (5 << 20) | (0x24 << 24);
-                                            goto error_csw;
+                                            set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+                                            break;
                                         }
 
                                         if (blocks == 0) {
@@ -704,7 +729,8 @@ __attribute__((naked)) int main(void) {
 
                                         if (blocks > 0x4000 || lba >= 0x4000 || (blocks + lba) > 0x4000) {
                                             msc_state = STATE_SENT_CSW | (5 << 20) | (0x24 << 24);
-                                            goto error_csw;
+                                            set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
+                                            break;
                                         }
 
                                         if (blocks == 0) {
@@ -728,16 +754,7 @@ __attribute__((naked)) int main(void) {
                                 default:
                                     // illegal command
                                     msc_state = STATE_SENT_CSW | (5 << 20);
-error_csw:
-                                    USB_EP1_IN(0) = 0x5355;
-                                    USB_EP1_IN(2) = 0x5342;
-                                    USB_EP1_IN(4) = dCSWTag;
-                                    USB_EP1_IN(6) = dCSWTag >> 16;
-                                    USB_EP1_IN(8) = dCBWDataTransferLength;
-                                    USB_EP1_IN(10) = dCBWDataTransferLength >> 16;
-                                    USB_EP1_IN(12) = 1;
-                                    USB_DESCS[1].count_tx = 13;
-                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
                                     break;
                             }
                         }
