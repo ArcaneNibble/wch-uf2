@@ -86,8 +86,6 @@ _enter_application_code:
 
 _enter_bootloader:
     sh zero, (a3)
-    la gp, 0
-    la sp, 0
 
     li t0, 0x1f
     csrw 0xbc0, t0
