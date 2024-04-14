@@ -194,10 +194,6 @@ extern uint32_t USB_SECTOR_STASH[128];
 #define R32_GPIOA_CFGHR     (*(volatile uint32_t*)0x40010804)
 #define R32_GPIOA_BSHR      (*(volatile uint32_t*)0x40010810)
 
-// #define R16_USBD_EPR(n)     (*(volatile uint16_t*)(0x40005C00 + 4 * (n)))
-// #define R16_USBD_CNTR       (*(volatile uint16_t*)0x40005C40)
-// #define R16_USBD_ISTR       (*(volatile uint16_t*)0x40005C44)
-// #define R16_USBD_DADDR      (*(volatile uint16_t*)0x40005C4C)
 // XXX wrong access size
 extern volatile uint32_t R16_USBD_EPR[16];
 extern volatile uint16_t R16_USBD_CNTR;

@@ -87,8 +87,6 @@ _enter_application_code:
 _enter_bootloader:
     sh zero, (a3)
 
-    // xxx testing
-    la sp, 0x20000100
     // Set up global pointer
 .option push
 .option norelax
