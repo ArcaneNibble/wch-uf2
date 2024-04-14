@@ -380,19 +380,15 @@ __attribute__((naked)) int main(void) {
     ACTIVE_CONFIG = 0;
     const uint8_t *outputting_desc = 0;
     CTRL_XFER_DESC_SZ = 0;
+    ADDRESS_HI = 0;
 
     // bits [31:24] = additional sense code
     // bits [23:20] = sense key
     // bits [7:0] = state
     uint32_t msc_state = STATE_WANT_CBW;
-    // when reading:
-    // [31:16] = current lba
-    // [15:0] = blocks left
-    // when writing:
-    // [31:16] = ignored
-    // [15:0] = blocks left
 
     UF2_GOT_BLOCKS[35] = 0;
+
 
     while (1) {
         uint32_t usb_int_status = R16_USBD_ISTR;
@@ -849,7 +845,6 @@ __attribute__((naked)) int main(void) {
                         msc_state = (msc_state & 0xffffff00) | STATE_WANT_CBW;
                         break;
                     case STATE_SENT_CSW_REBOOT:
-                        // todo reboot into ram
                         STK_CMPLR = (50 /* ms */ * 12000 /* assume 96 MHz system clock, div8 */);
                         STK_CTLR = 0b111000;
                         STK_CTLR = 0b111001;
@@ -858,10 +853,15 @@ __attribute__((naked)) int main(void) {
                         STK_SR = 0;
                         R16_USBD_CNTR = 0b11;
                         R32_EXTEN_CTR &= ~(1 << 1);
-                        // wtf why does this work and the other stuff doesn't?
-                        R16_BKP_DATAR10 = 0x4170;
-                        PFIC_CFGR = 0xbeef0080;
-                        while (1) { asm volatile(""); }
+                        if (ADDRESS_HI >> 8 == 0x20) {
+                            // ram boot
+                            ((void (*)())0x20000000)();
+                        } else {
+                            // wtf why does this work and the other stuff doesn't?
+                            R16_BKP_DATAR10 = 0x4170;
+                            PFIC_CFGR = 0xbeef0080;
+                            while (1) { asm volatile(""); }
+                        }
                         break;
                     case STATE_SENT_DATA_IN:
                         make_msc_csw(dCSWTag, 0);
