@@ -242,6 +242,30 @@ __attribute__((always_inline)) static inline uint32_t min(uint32_t a, uint32_t b
     return b;
 }
 
+const uint8_t MODE_SENSE_6[4] __attribute__((aligned(2))) = {
+    0x03, 0x00, 0x00, 0x00,
+};
+const uint8_t MODE_SENSE_10[8] __attribute__((aligned(2))) = {
+    0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+const uint8_t READ_FORMAT_CAPACITY[12] __attribute__((aligned(2))) = {
+    0x00, 0x00, 0x00,
+    0x08,
+    0x00, 0x00, 0x40, 0x00,     // 8 MiB
+    0x02,                       // formatted media
+    0x00, 0x02, 0x00,           // 512 bytes / sector
+};
+const uint8_t READ_CAPACITY[8] __attribute__((aligned(2))) = {
+    0x00, 0x00, 0x3f, 0xff,     // 8 MiB
+    0x00, 0x00, 0x02, 0x00,
+};
+static void ep1_send_hardcoded_response(const uint16_t *data, uint32_t len) {
+    for (uint32_t i = 0; i < (len + 1) / 2; i++)
+        USB_EP1_IN(i * 2) = data[i];
+    USB_DESCS[1].count_tx = len;
+    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+}
+
 static void synthesize_block(uint32_t block, uint32_t piece) {
     if (block == 0 || block == 65 || block == 66 || block == 67) {
         const uint16_t *sector_ptr;
@@ -592,11 +616,7 @@ __attribute__((naked)) int main(void) {
                                 case 0x12:
                                     // inquiry
                                     if (USB_EP1_OUT(16) == 0) {
-                                        for (int i = 0; i < 36 / 2; i++) {
-                                            USB_EP1_IN(i * 2) = ((uint16_t*)INQUIRY_RESPONSE)[i];
-                                        }
-                                        USB_DESCS[1].count_tx = 36;
-                                        set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                        ep1_send_hardcoded_response((uint16_t*)INQUIRY_RESPONSE, sizeof(INQUIRY_RESPONSE));
                                         msc_state = STATE_SENT_DATA_IN;
                                         break;
                                     }
@@ -605,10 +625,7 @@ __attribute__((naked)) int main(void) {
                                     break;
                                 case 0x1a:
                                     // mode sense (6)
-                                    USB_EP1_IN(0) = 0x0003;
-                                    USB_EP1_IN(2) = 0x0000;
-                                    USB_DESCS[1].count_tx = 4;
-                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    ep1_send_hardcoded_response((uint16_t*)MODE_SENSE_6, sizeof(MODE_SENSE_6));
                                     msc_state = STATE_SENT_DATA_IN;
                                     break;
                                 case 0x1b:
@@ -622,35 +639,18 @@ __attribute__((naked)) int main(void) {
                                     break;
                                 case 0x23:
                                     // read format capacity
-                                    USB_EP1_IN(0) = 0x0000;
-                                    USB_EP1_IN(2) = 0x0800;
-                                    USB_EP1_IN(4) = 0x0000;     // 8 MiB
-                                    USB_EP1_IN(6) = 0x0040;
-                                    USB_EP1_IN(8) = 0x0002;     // formatted media, 512 byte sectors
-                                    USB_EP1_IN(10) = 0x0002;
-                                    USB_DESCS[1].count_tx = 12;
-                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    ep1_send_hardcoded_response((uint16_t*)READ_FORMAT_CAPACITY, sizeof(READ_FORMAT_CAPACITY));
                                     msc_state = STATE_SENT_DATA_IN;
                                     break;
                                 case 0x5a:
                                     // mode sense (10)
-                                    USB_EP1_IN(0) = 0x0800;
-                                    USB_EP1_IN(2) = 0x0000;
-                                    USB_EP1_IN(4) = 0x0000;
-                                    USB_EP1_IN(6) = 0x0000;
-                                    USB_DESCS[1].count_tx = 8;
-                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    ep1_send_hardcoded_response((uint16_t*)MODE_SENSE_10, sizeof(MODE_SENSE_10));
                                     msc_state = STATE_SENT_DATA_IN;
                                     break;
                                 case 0x25:
                                     // READ CAPACITY (10)
                                     // xxx don't bother checking the silly fields
-                                    USB_EP1_IN(0) = 0x0000;     // 8 MiB
-                                    USB_EP1_IN(2) = 0xff3f;
-                                    USB_EP1_IN(4) = 0x0000;     // 512 byte sectors
-                                    USB_EP1_IN(6) = 0x0002;
-                                    USB_DESCS[1].count_tx = 8;
-                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    ep1_send_hardcoded_response((uint16_t*)READ_CAPACITY, sizeof(READ_CAPACITY));
                                     msc_state = STATE_SENT_DATA_IN;
                                     break;
                                 case 0x28:

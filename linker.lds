@@ -24,6 +24,11 @@ SECTIONS
         *(.rodata)
         *(.rodata*)
         *(.gnu.linkonce.t.*)
+        *(.srodata.cst16)
+        *(.srodata.cst8)
+        *(.srodata.cst4)
+        *(.srodata.cst2)
+        *(.srodata .srodata.*)
         . = ALIGN(4);
     } >FLASH
 
@@ -41,11 +46,6 @@ SECTIONS
         *(.sdata2.*)
         *(.gnu.linkonce.s.*)
         . = ALIGN(4);
-        *(.srodata.cst16)
-        *(.srodata.cst8)
-        *(.srodata.cst4)
-        *(.srodata.cst2)
-        *(.srodata .srodata.*)
         . = ALIGN(4);
         PROVIDE( _edata = .);
     } >LOL_NO_RAM AT>FLASH
