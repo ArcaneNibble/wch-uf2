@@ -612,6 +612,18 @@ __attribute__((naked)) int main(void) {
                                     else
                                         msc_state = STATE_SENT_CSW;
                                     break;
+                                case 0x23:
+                                    // read format capacity
+                                    USB_EP1_IN(0) = 0x0000;
+                                    USB_EP1_IN(2) = 0x0800;
+                                    USB_EP1_IN(4) = 0x0000;     // 8 MiB
+                                    USB_EP1_IN(6) = 0x0040;
+                                    USB_EP1_IN(8) = 0x0002;     // formatted media, 512 byte sectors
+                                    USB_EP1_IN(10) = 0x0002;
+                                    USB_DESCS[1].count_tx = 12;
+                                    set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
+                                    msc_state = STATE_SENT_DATA_IN;
+                                    break;
                                 case 0x5a:
                                     // mode sense (10)
                                     USB_EP1_IN(0) = 0x0800;
