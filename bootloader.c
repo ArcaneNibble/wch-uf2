@@ -156,7 +156,7 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
 extern volatile USBD_descriptor     USB_DESCS[2];
 extern volatile uint32_t            USB_EP0_OUT[4];
 extern volatile uint32_t            USB_EP0_IN[4];
-#define USB_EP1_OUT(offs)   (*(volatile uint32_t *)(0x40006040 + 2 * (offs)))
+extern volatile uint32_t            USB_EP1_OUT[32];
 #define USB_EP1_IN(offs)    (*(volatile uint32_t *)(0x400060C0 + 2 * (offs)))
 
 #define USB_UF2_FIELDS_STASH(offs)  (*(uint32_t *)(0x400061d4 + 2 * (offs)))
@@ -585,13 +585,13 @@ __attribute__((naked)) int main(void) {
                 // ep 1 out
                 switch (msc_state & 0xff) {
                     case STATE_WANT_CBW:
-                        if ((USB_DESCS[1].count_rx & 0x3f) != 0x1f || USB_EP1_OUT(0) != 0x5355 || USB_EP1_OUT(2) != 0x4342) {
+                        if ((USB_DESCS[1].count_rx & 0x3f) != 0x1f || USB_EP1_OUT[0] != 0x5355 || USB_EP1_OUT[1] != 0x4342) {
                             set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_STALL, 0, 0);
                         } else {
-                            dCSWTag = USB_EP1_OUT(4) | (USB_EP1_OUT(6) << 16);
-                            uint32_t dCBWDataTransferLength = USB_EP1_OUT(8) | (USB_EP1_OUT(10) << 16);
-                            uint32_t bmCBWFlags = USB_EP1_OUT(12) & 0xff;
-                            uint32_t operation_code = USB_EP1_OUT(14) >> 8;
+                            dCSWTag = USB_EP1_OUT[2] | (USB_EP1_OUT[3] << 16);
+                            uint32_t dCBWDataTransferLength = USB_EP1_OUT[4] | (USB_EP1_OUT[5] << 16);
+                            uint32_t bmCBWFlags = USB_EP1_OUT[6] & 0xff;
+                            uint32_t operation_code = USB_EP1_OUT[7] >> 8;
 
                             switch (operation_code) {
                                 case 0x00:
@@ -616,7 +616,7 @@ __attribute__((naked)) int main(void) {
                                     break;
                                 case 0x12:
                                     // inquiry
-                                    if (USB_EP1_OUT(16) == 0) {
+                                    if (USB_EP1_OUT[8] == 0) {
                                         ep1_send_hardcoded_response((uint16_t*)INQUIRY_RESPONSE, sizeof(INQUIRY_RESPONSE));
                                         msc_state = STATE_SENT_DATA_IN;
                                         break;
@@ -631,7 +631,7 @@ __attribute__((naked)) int main(void) {
                                     break;
                                 case 0x1b:
                                     // start/stop unit
-                                    uint32_t param = USB_EP1_OUT(18) >> 8;
+                                    uint32_t param = USB_EP1_OUT[9] >> 8;
                                     make_msc_csw(dCSWTag, 0);
                                     if (param == 0x02)
                                         msc_state = STATE_SENT_CSW_REBOOT;
@@ -663,13 +663,13 @@ __attribute__((naked)) int main(void) {
                                         // @ 18: lba2 lba1
                                         // @ 20: lba0 group
                                         // @ 22: len1 len0
-                                        uint32_t lba = (USB_EP1_OUT(16) << 16) & 0xff000000;
-                                        uint32_t tmp = USB_EP1_OUT(18);
+                                        uint32_t lba = (USB_EP1_OUT[8] << 16) & 0xff000000;
+                                        uint32_t tmp = USB_EP1_OUT[9];
                                         lba |= (tmp & 0xff) << 24;
                                         lba |= (tmp & 0xff00);
-                                        tmp = USB_EP1_OUT(20);
+                                        tmp = USB_EP1_OUT[10];
                                         lba |= (tmp & 0xff);
-                                        tmp = USB_EP1_OUT(22);
+                                        tmp = USB_EP1_OUT[11];
                                         uint32_t blocks = (tmp >> 8) | ((tmp & 0xff) << 8);
 
                                         if (blocks > 0x4000 || lba >= 0x4000 || (blocks + lba) > 0x4000) {
@@ -713,28 +713,28 @@ __attribute__((naked)) int main(void) {
                         uint32_t piece = (msc_state >> 8) & 0b111;
 
                         if (piece == 0) {
-                            if ((USB_EP1_OUT(0) == 0x4655) &&
-                                (USB_EP1_OUT(2) == 0x0A32) &&
-                                (USB_EP1_OUT(4) == 0x5157) &&
-                                (USB_EP1_OUT(6) == 0x9E5D)) {
+                            if ((USB_EP1_OUT[0] == 0x4655) &&
+                                (USB_EP1_OUT[1] == 0x0A32) &&
+                                (USB_EP1_OUT[2] == 0x5157) &&
+                                (USB_EP1_OUT[3] == 0x9E5D)) {
                                 // UF2 magic okay
-                                uint32_t flags = USB_EP1_OUT(8) | (USB_EP1_OUT(10) << 16);
-                                uint32_t address = USB_EP1_OUT(12) | (USB_EP1_OUT(14) << 16);
-                                uint32_t bytes = USB_EP1_OUT(16) | (USB_EP1_OUT(18) << 16);
-                                uint32_t familyid = USB_EP1_OUT(28) | (USB_EP1_OUT(30) << 16);
+                                uint32_t flags = USB_EP1_OUT[4] | (USB_EP1_OUT[5] << 16);
+                                uint32_t address = USB_EP1_OUT[6] | (USB_EP1_OUT[7] << 16);
+                                uint32_t bytes = USB_EP1_OUT[8] | (USB_EP1_OUT[9] << 16);
+                                uint32_t familyid = USB_EP1_OUT[14] | (USB_EP1_OUT[15] << 16);
 
                                 if (!(flags & 1) && bytes == 256 && (address & 0xff) == 0) {
                                     if (flags & (0x2000) && familyid == FAMILY_ID) {
                                         // uf2 good so far!
-                                        USB_UF2_FIELDS_STASH(0) = USB_EP1_OUT(20);
-                                        USB_UF2_FIELDS_STASH(2) = USB_EP1_OUT(22);
-                                        USB_UF2_FIELDS_STASH(4) = USB_EP1_OUT(24);
-                                        USB_UF2_FIELDS_STASH(6) = USB_EP1_OUT(26);
-                                        USB_UF2_FIELDS_STASH(8) = USB_EP1_OUT(12);
-                                        USB_UF2_FIELDS_STASH(10) = USB_EP1_OUT(14);
+                                        USB_UF2_FIELDS_STASH(0) = USB_EP1_OUT[10];
+                                        USB_UF2_FIELDS_STASH(2) = USB_EP1_OUT[11];
+                                        USB_UF2_FIELDS_STASH(4) = USB_EP1_OUT[12];
+                                        USB_UF2_FIELDS_STASH(6) = USB_EP1_OUT[13];
+                                        USB_UF2_FIELDS_STASH(8) = USB_EP1_OUT[6];
+                                        USB_UF2_FIELDS_STASH(10) = USB_EP1_OUT[7];
 
                                         for (int i = 0; i < 16; i++)
-                                            USB_SECTOR_STASH(i * 2) = USB_EP1_OUT(32 + i * 2);
+                                            USB_SECTOR_STASH(i * 2) = USB_EP1_OUT[16 + i];
 
                                         msc_state += 0x1000;
                                     }
@@ -742,10 +742,10 @@ __attribute__((naked)) int main(void) {
                             }
                         } else if (piece >= 1 && piece <= 3) {
                             for (int i = 0; i < 32; i++)
-                                USB_SECTOR_STASH(32 + (piece - 1) * 64 + i * 2) = USB_EP1_OUT(i * 2);
+                                USB_SECTOR_STASH(32 + (piece - 1) * 64 + i * 2) = USB_EP1_OUT[i];
                         } else if (piece == 4) {
                             for (int i = 0; i < 16; i++)
-                                USB_SECTOR_STASH(224 + i * 2) = USB_EP1_OUT(i * 2);
+                                USB_SECTOR_STASH(224 + i * 2) = USB_EP1_OUT[i];
                         }
 
                         if (piece != 7) {
@@ -754,7 +754,7 @@ __attribute__((naked)) int main(void) {
                         } else {
                             // full sector is done
                             if (msc_state & 0x1000) {
-                                if (USB_EP1_OUT(60) == 0x6F30 && USB_EP1_OUT(62) == 0x0AB1) {
+                                if (USB_EP1_OUT[30] == 0x6F30 && USB_EP1_OUT[31] == 0x0AB1) {
                                     // uf2 all magics are good!
                                     uint32_t blocknum = USB_UF2_FIELDS_STASH(0) | (USB_UF2_FIELDS_STASH(2) << 16);
                                     uint32_t totblocks = USB_UF2_FIELDS_STASH(4) | (USB_UF2_FIELDS_STASH(6) << 16);

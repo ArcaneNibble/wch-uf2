@@ -93,7 +93,6 @@ _enter_bootloader:
     la gp, __global_pointer$
 .option pop
 
-
     li t0, 0x1f
     csrw 0xbc0, t0
 
