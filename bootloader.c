@@ -162,9 +162,7 @@ extern volatile uint32_t            USB_EP1_OUT[32];
 extern volatile uint32_t            USB_EP1_IN[32];
 
 extern uint32_t BLOCKNUM_LO;
-extern uint32_t BLOCKNUM_HI;
 extern uint32_t TOTBLOCKS_LO;
-extern uint32_t TOTBLOCKS_HI;
 extern uint32_t CSWTAG_LO;
 extern uint32_t CSWTAG_HI;
 extern uint32_t ADDRESS_LO;
@@ -732,23 +730,25 @@ __attribute__((naked)) int main(void) {
                                 (USB_EP1_OUT[2] == 0x5157) &&
                                 (USB_EP1_OUT[3] == 0x9E5D)) {
                                 // UF2 magic okay
-                                uint32_t flags = USB_EP1_OUT[4] | (USB_EP1_OUT[5] << 16);
-                                uint32_t address = USB_EP1_OUT[6] | (USB_EP1_OUT[7] << 16);
-                                uint32_t bytes = USB_EP1_OUT[8] | (USB_EP1_OUT[9] << 16);
+                                uint32_t flags_lo = USB_EP1_OUT[4];
+                                uint32_t address_lo = USB_EP1_OUT[6];
+                                uint32_t address_hi = USB_EP1_OUT[7];
+                                uint32_t bytes_lo = USB_EP1_OUT[8];
+                                uint32_t bytes_hi = USB_EP1_OUT[9];
                                 uint32_t familyid = USB_EP1_OUT[14] | (USB_EP1_OUT[15] << 16);
+                                uint32_t blocknum_hi = USB_EP1_OUT[11];
+                                uint32_t totblocks_hi = USB_EP1_OUT[13];
 
-                                if (bytes == 256 && (address & 0xff) == 0) {
-                                    if (flags & (0x2000) && familyid == FAMILY_ID) {
+                                if (bytes_lo == 256 && bytes_hi == 0 && (address_lo & 0xff) == 0 && blocknum_hi == 0 && totblocks_hi == 0) {
+                                    if (flags_lo & (0x2000) && familyid == FAMILY_ID) {
                                         // uf2 good so far!
 
                                         // *preliminary* bounds check
-                                        if ((!(flags & 1) && (address >> 24) == 0x08) || ((flags & 1) && (address >> 24) == 0x20)) {
-                                            ADDRESS_LO = USB_EP1_OUT[6];
-                                            ADDRESS_HI = USB_EP1_OUT[7];
+                                        if ((!(flags_lo & 1) && (address_hi >> 8) == 0x08) || ((flags_lo & 1) && (address_hi >> 8) == 0x20)) {
+                                            ADDRESS_LO = address_lo;
+                                            ADDRESS_HI = address_hi;
                                             BLOCKNUM_LO = USB_EP1_OUT[10];
-                                            BLOCKNUM_HI = USB_EP1_OUT[11];
                                             TOTBLOCKS_LO = USB_EP1_OUT[12];
-                                            TOTBLOCKS_HI = USB_EP1_OUT[13];
 
                                             for (int i = 0; i < 16; i++)
                                                 USB_SECTOR_STASH[i] = USB_EP1_OUT[16 + i];
@@ -758,12 +758,9 @@ __attribute__((naked)) int main(void) {
                                     }
                                 }
                             }
-                        } else if (piece >= 1 && piece <= 3) {
-                            for (int i = 0; i < 32; i++)
+                        } else if (piece >= 1 && piece <= 4) {
+                            for (int i = 0; i < (piece != 4 ? 32 : 16); i++)
                                 USB_SECTOR_STASH[16 + (piece - 1) * 32 + i] = USB_EP1_OUT[i];
-                        } else if (piece == 4) {
-                            for (int i = 0; i < 16; i++)
-                                USB_SECTOR_STASH[112 + i] = USB_EP1_OUT[i];
                         }
 
                         if (piece != 7) {
@@ -775,8 +772,8 @@ __attribute__((naked)) int main(void) {
                                 if (USB_EP1_OUT[30] == 0x6F30 && USB_EP1_OUT[31] == 0x0AB1) {
                                     // uf2 all magics are good!
                                     uint32_t address = ADDRESS_LO | (ADDRESS_HI << 16);
-                                    uint32_t blocknum = BLOCKNUM_LO | (BLOCKNUM_HI << 16);
-                                    uint32_t totblocks = TOTBLOCKS_LO | (TOTBLOCKS_HI << 16);
+                                    uint32_t blocknum = BLOCKNUM_LO;
+                                    uint32_t totblocks = TOTBLOCKS_LO;
 
                                     if (UF2_GOT_BLOCKS[35] & 0x8000) {
                                         // not first uf2 block
