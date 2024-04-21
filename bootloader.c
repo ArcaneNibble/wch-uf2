@@ -1,3 +1,5 @@
+// CH32V UF2 bootloader, size-optimized (target: <= 4096 bytes)
+
 #include <stdint.h>
 
 typedef struct USBD_descriptor {
@@ -25,7 +27,13 @@ typedef struct USBD_descriptor {
 //      ram for stashing variables
 // +0x200
 //      <256-byte flash page buffer>
+// In addition to the expected USB buffers, this RAM is used to store program state.
+// This allows the *entire* SRAM to be used when downloading to SRAM.
 
+// Note that every buffer that needs to be sent over USB must be 16-bit aligned.
+// This is assumed by copying code (which will copy in 16-bit chunks).
+
+// Device descriptor
 const uint8_t USB_DEV_DESC[18] __attribute__((aligned(2))) = {
     18,             // bLength
     1,              // bDescriptorType
@@ -44,6 +52,7 @@ const uint8_t USB_DEV_DESC[18] __attribute__((aligned(2))) = {
 };
 
 const uint8_t USB_CONF_DESC[0x20] __attribute__((aligned(2))) = {
+    // Configuration descriptor
     9,              // bLength
     2,              // bDescriptorType
     0x20, 0x00,     // wTotalLength
@@ -53,6 +62,7 @@ const uint8_t USB_CONF_DESC[0x20] __attribute__((aligned(2))) = {
     0x80,           // bmAttributes
     250,            // bMaxPower
 
+    // Interface descriptor
     9,              // bLength
     4,              // bDescriptorType
     0,              // bInterfaceNumber
@@ -63,6 +73,7 @@ const uint8_t USB_CONF_DESC[0x20] __attribute__((aligned(2))) = {
     0x50,           // bInterfaceProtocol
     0,              // iInterface
 
+    // EP1 IN endpoint descriptor
     7,              // bLength
     5,              // bDescriptorType
     0x81,           // bEndpointAddress
@@ -70,6 +81,7 @@ const uint8_t USB_CONF_DESC[0x20] __attribute__((aligned(2))) = {
     0x40, 0x00,     // wMaxPacketSize
     0,              // bInterval
 
+    // EP1 OUT endpoint descriptor
     7,              // bLength
     5,              // bDescriptorType
     0x01,           // bEndpointAddress
@@ -78,24 +90,34 @@ const uint8_t USB_CONF_DESC[0x20] __attribute__((aligned(2))) = {
     0,              // bInterval
 };
 
+// Must be UTF-16, and the first character is a *manually-calculated* total length
+// (combined with a 0x03 string descriptor type)
 const uint16_t USB_MANUF[13] = u"\u031aArcaneNibble";
 const uint16_t USB_PRODUCT[15] = u"\u031eCH32V UF2 Boot";
+// Used for outputting serial number from electronic signature bytes
 const uint8_t HEXLUT[16] = "0123456789ABCDEF";
 
+// SCSI INQUIRY standard response
 const uint8_t INQUIRY_RESPONSE[36] __attribute__((aligned(2))) = {
+    0x00,   // direct access block device
+    0x80,   // RMB removable media
+    0x04,   // SPC-2
+    0x02,   // fixed, response data format
+    0x1F,   // additional length
+    0x00,   // xxx mostly obsolete junk
     0x00,
-    0x80,
-    0x04,
-    0x02,
-    0x1F,
     0x00,
-    0x00,
-    0x00,
+    // Vendor
     'A', 'r', 'c', 'a', 'n', 'e', 'N', 'b',
+    // Product
     'C', 'H', '3', '2', 'V', ' ', 'U', 'F', '2', ' ', 'B', 'o', 'o', 't', ' ', ' ',
+    // Revision
     ' ', ' ', ' ', ' ',
 };
 
+// FAT16 boot sector
+// Most of these parameters *cannot* be changed,
+// as synthesize_block assumes a particular layout
 const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(2))) = {
     0xeb, 0x3c, 0x90,                           // jump
     'A', 'r', 'c', 'a', 'n', 'e', 'N', 'b',     // oem name
@@ -116,13 +138,19 @@ const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(2))) = {
     'F', 'A', 'T', '1', '6', ' ', ' ', ' ',     // fs type
 };
 
+// Change here to change UF2 data files
 const uint8_t INFO_UF2[70] __attribute__((aligned(2))) = "UF2 Bootloader v0.0.0\nModel: CH32V Generic\nBoard-ID: CH32Vxxx-Generic\n";
 const uint8_t INDEX_HTM[119] __attribute__((aligned(2))) = "<!doctype html>\n<html><body><script>location.replace(\"https://github.com/ArcaneNibble/wch-uf2\")</script></body></html>\n";
+// Change here for different chips
 #define THIS_CHIP_FLASH_MAX_SZ_BYTES    (224 * 1024)
-#define BOOTLOADER_RESERVED_SZ_BYTES    (4 * 1024)
 #define THIS_CHIP_RAM_MAX_SZ_BYTES      (20 * 1024)
-#define FAMILY_ID                       0xdeadbeef
 
+#define BOOTLOADER_RESERVED_SZ_BYTES    (4 * 1024)
+#define FAMILY_ID                       0x699b62ec
+
+// FAT16 root directory entries
+// Most of these parameters *cannot* be changed,
+// as synthesize_block assumes a particular layout
 const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
     'C', 'H', '3', '2', 'V', ' ', 'U', 'F', '2', ' ', ' ',      // name
     0x08,                                                       // attributes (volume label)
@@ -131,7 +159,7 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
     0x00, 0x00,                                                 // reserved
     0x00, 0x00, 0x00, 0x00,                                     // timestamps
     0x00, 0x00,                                                 // start cluster
-    0x00, 0x00, 0x00, 0x00,                                     // file size]
+    0x00, 0x00, 0x00, 0x00,                                     // file size
 
     'I', 'N', 'F', 'O', '_', 'U', 'F', '2', 'T', 'X', 'T',      // name
     0x01,                                                       // attributes (RO)
@@ -155,6 +183,12 @@ const uint8_t ROOT_DIR[32 * 3] __attribute__((aligned(2))) = {
 #define ESIG_UNIID(x)       (*(volatile uint8_t*)(0x1FFFF7E8 + (x)))
 // XXX manual claims 96 bits but only 64 bits seem to actually be programmed?
 
+// Note that all of this stuff is declared *extern*
+// A significant amount of code size is being saved because the gp register
+// is pointed at 0x40006000, right at the beginning of USBD RAM
+// (and within reach of the USBD registers).
+// The linker is then being instructed to perform gp-relative linker relaxation.
+// Actual addresses for these variables are in the linker.lds file.
 extern volatile USBD_descriptor     USB_DESCS[2];
 extern volatile uint32_t            USB_EP0_OUT[4];
 extern volatile uint32_t            USB_EP0_IN[4];
@@ -175,9 +209,12 @@ extern uint32_t CTRL_XFER_STATE_X;
 extern uint32_t CTRL_XFER_DESC_SZ;
 extern uint32_t USB_SECTOR_STASH[128];
 
+// Files larger than this won't cause an auto-reboot
+// (there is not enough USBD RAM to mark which blocks have been received)
 #define MAX_AUTO_BOOT_BLOCKS    (36 * 16 - 1)
 extern uint32_t UF2_GOT_BLOCKS[36];
 
+// Constants for USBD registers
 #define USB_EPTYPE_BULK     0b00
 #define USB_EPTYPE_CONTROL  0b01
 
@@ -186,6 +223,7 @@ extern uint32_t UF2_GOT_BLOCKS[36];
 #define USB_STAT_NAK        0b10
 #define USB_STAT_ACK        0b11
 
+// Other registers we need
 #define R16_BKP_DATAR10     (*(volatile uint32_t*)0x40006C28)
 
 #define R32_PWR_CTLR        (*(volatile uint32_t*)0x40007000)
@@ -200,6 +238,7 @@ extern uint32_t UF2_GOT_BLOCKS[36];
 #define R32_GPIOA_CFGHR     (*(volatile uint32_t*)0x40010804)
 #define R32_GPIOA_BSHR      (*(volatile uint32_t*)0x40010810)
 
+// USBD registers are within range to perform gp relaxation
 // XXX wrong access size
 extern volatile uint32_t R16_USBD_EPR[16];
 extern volatile uint16_t R16_USBD_CNTR;
@@ -220,6 +259,9 @@ extern volatile uint16_t R16_USBD_DADDR;
 
 #define PFIC_CFGR           (*(volatile uint32_t*)0xE000E048)
 
+// Everything in this code is controlled by various state machines
+
+// USB device stack control transfer state handling
 // state_x[7:0] = addr
 #define STATE_SET_ADDR          0x00
 // state_x[15:8] = byte pos
@@ -228,17 +270,34 @@ extern volatile uint16_t R16_USBD_DADDR;
 #define STATE_GET_STR_SERIAL    0x02
 #define STATE_CTRL_SIMPLE_IN    0x03
 
+// USB MSC state handling
+// msc_state contains both the state *and* request sense:
+//  state[31:24] = additional sense code
+//  state[23:20] = sense key
+//  state[7:0] = state
 #define STATE_WANT_CBW          0x00
 #define STATE_SENT_CSW          0x01
 #define STATE_SENT_CSW_REBOOT   0x02
 #define STATE_SENT_DATA_IN      0x03
-// state[10:8] = sector fragment
+//  state[10:8] = sector fragment
 #define STATE_SEND_MORE_READ    0x04
-// state[12] = uf2 good so far
-// state[10:8] = sector fragment
+//  state[12] = uf2 good so far
+//  state[10:8] = sector fragment
 #define STATE_WAITING_FOR_WRITE 0x05
 
-// WARNING: only one level of non-inline subroutine calls are possible
+// Because this code is running completely RAM-less
+// (other than explicit usage of USBD RAM),
+// there is no stack, and thus no space to spill registers.
+// WARNING: This means that only one level of
+// non-inline subroutine calls are possible.
+// This is checked by manually searching the assembly listing
+// for access to the sp register.
+
+// Just to be entirely sure, we've marked some functions as
+// __attribute__((always_inline)). Other functions are
+// explicitly *outlined* in order to save code size.
+// This is not entirely stable and relies on hand-checking
+// the generated assembly.
 
 __attribute__((always_inline)) static inline void set_ep_mode(uint32_t epidx, uint32_t epaddr, uint32_t eptype, uint32_t stat_rx, uint32_t stat_tx, uint32_t xtra, int clear_dtog) {
     uint32_t val = R16_USBD_EPR[epidx];
@@ -389,9 +448,6 @@ __attribute__((naked)) int main(void) {
     CTRL_XFER_DESC_SZ = 0;
     ADDRESS_HI = 0;
 
-    // bits [31:24] = additional sense code
-    // bits [23:20] = sense key
-    // bits [7:0] = state
     uint32_t msc_state = STATE_WANT_CBW;
 
     UF2_GOT_BLOCKS[35] = 0;
