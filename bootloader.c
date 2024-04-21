@@ -211,8 +211,9 @@ extern uint32_t USB_SECTOR_STASH[128];
 
 // Files larger than this won't cause an auto-reboot
 // (there is not enough USBD RAM to mark which blocks have been received)
-#define MAX_AUTO_BOOT_BLOCKS    (36 * 16 - 1)
-extern uint32_t UF2_GOT_BLOCKS[36];
+#define AUTO_BOOT_BITMAP_NUM_HWORDS     36
+#define MAX_AUTO_BOOT_BLOCKS            (AUTO_BOOT_BITMAP_NUM_HWORDS * 16 - 1)
+extern uint32_t UF2_GOT_BLOCKS[AUTO_BOOT_BITMAP_NUM_HWORDS];
 
 // Constants for USBD registers
 #define USB_EPTYPE_BULK     0b00
@@ -450,7 +451,7 @@ __attribute__((naked)) int main(void) {
 
     uint32_t msc_state = STATE_WANT_CBW;
 
-    UF2_GOT_BLOCKS[35] = 0;
+    UF2_GOT_BLOCKS[AUTO_BOOT_BITMAP_NUM_HWORDS - 1] = 0;
 
 
     while (1) {
@@ -834,13 +835,13 @@ __attribute__((naked)) int main(void) {
                                     uint32_t blocknum = BLOCKNUM_LO;
                                     uint32_t totblocks = TOTBLOCKS_LO;
 
-                                    if (UF2_GOT_BLOCKS[35] & 0x8000) {
+                                    if (UF2_GOT_BLOCKS[AUTO_BOOT_BITMAP_NUM_HWORDS - 1] & 0x8000) {
                                         // not first uf2 block
                                         UF2_GOT_BLOCKS[blocknum / 16] |= 1 << (blocknum % 16);
                                     } else {
                                         // first uf2 block, or too big
                                         if (totblocks <= MAX_AUTO_BOOT_BLOCKS) {
-                                            for (int i = 0; i < 36; i++)
+                                            for (int i = 0; i < AUTO_BOOT_BITMAP_NUM_HWORDS; i++)
                                                 UF2_GOT_BLOCKS[i] = 0;
                                             for (int i = totblocks; i <= MAX_AUTO_BOOT_BLOCKS; i++) {
                                                 // deliberate off-by-1 to set high bit
@@ -885,7 +886,7 @@ __attribute__((naked)) int main(void) {
                                 uint32_t dCSWTag = CSWTAG_LO | (CSWTAG_HI << 16);
                                 make_msc_csw(dCSWTag, 0);
                                 uint32_t all_blocks = 0xffff;
-                                for (int i = 0; i < 36; i++)
+                                for (int i = 0; i < AUTO_BOOT_BITMAP_NUM_HWORDS; i++)
                                     all_blocks &= UF2_GOT_BLOCKS[i];
                                 if (all_blocks == 0xffff)
                                     msc_state = STATE_SENT_CSW_REBOOT;
