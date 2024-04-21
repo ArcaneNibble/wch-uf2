@@ -13,7 +13,7 @@ all: main.uf2
 main.elf: startup.o main.o
 
 %.uf2: %.bin
-	~/code/uf2/utils/uf2conv.py -c -f 0xdeadbeef -b 0x08001000 -o $@ $<
+	~/code/uf2/utils/uf2conv.py -c -f 0x699b62ec -b 0x08001000 -o $@ $<
 
 %.bin: %.elf
 	$(OBJCOPY) -O binary $< $@
