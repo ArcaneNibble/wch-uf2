@@ -230,6 +230,8 @@ extern uint32_t USB_SECTOR_STASH[128];
 
 // Files larger than this won't cause an auto-reboot
 // (there is not enough USBD RAM to mark which blocks have been received)
+// The last bit (MSB) of the last halfword is used to mark
+// "has received the first valid UF2 block which contains a valid block count"
 #define AUTO_BOOT_BITMAP_NUM_HWORDS     36
 #define MAX_AUTO_BOOT_BLOCKS            (AUTO_BOOT_BITMAP_NUM_HWORDS * 16 - 1)
 extern uint32_t UF2_GOT_BLOCKS[AUTO_BOOT_BITMAP_NUM_HWORDS];
