@@ -17,4 +17,4 @@
     - SRAM download address must be 20xxxxxx
     - The entire size of the SRAM can be used, as USBD contains its own buffer memory independent of the main SRAM
 - Auto-reboot on complete download, _but_ **only** works if the download is sufficiently small. Larger downloads will of course still flash, but they will not trigger auto-reboot and a manual reboot will be required.
-- Lots of nasty code golfing tricks -- see comments in [bootloader.c](/bootloader.c)
+- Lots of nasty code golfing tricks -- see comments in [bootloader.c](bootloader.c)
