@@ -19,3 +19,15 @@
     - The entire size of the SRAM can be used, as USBD contains its own buffer memory independent of the main SRAM
 - Auto-reboot on complete download, _but_ **only** works if the download is sufficiently small. Larger downloads will of course still flash, but they will not trigger auto-reboot and a manual reboot will be required.
 - Lots of nasty code golfing tricks -- see comments in [bootloader.c](https://github.com/ArcaneNibble/wch-uf2/blob/main/bootloader.c)
+
+## Examples
+
+There are two included examples which build "blinky" applications (that blink pin PA0). The "RAM" example blinks at a different speed than the "flash" example so that you can tell that you've successfully loaded it.
+
+The examples do *not* use a verbatim copy of the vendor startup bits -- some elements which we (IANAL) consider to be purely functional have been borrowed, but other things have been changed substantially:
+- Vector table isn't hardcoded in the startup assembly file (as it doesn't need to be located at the beginning of flash, this isn't necessary)
+- Preinit, init, and fini functions (`.init_array`, e.g. `__attribute__((constructor))` and (untested) C++ static constructors) are properly called
+    - Legacy `.init` is *not* called
+- Various initialization for CSRs, interrupt handling, etc. are not hardcoded in the startup assembly code. The intention is that this can be done with `__attribute__((constructor))`.
+
+The example Makefiles contain a horrible hardcoded path to `uf2conv.py`. This needs to be fixed before they will work on your computer.

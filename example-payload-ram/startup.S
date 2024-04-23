@@ -22,6 +22,7 @@ _start:
     bltu a0, a1, 1b
 2:
 
+    // NOTE: Vendor startup code does *NOT* call these functions
     // Call preinit array functions
     la s0, __preinit_array_start
     la s1, __preinit_array_end

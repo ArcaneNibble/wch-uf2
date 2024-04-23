@@ -14,7 +14,10 @@ main.elf: startup.o main.o
 
 %.uf2: %.bin
 	~/code/uf2/utils/uf2conv.py -c -f 0x699b62ec -b 0x20000000 -o $@.temp $<
+# This is a *terrible* hack
+# (there isn't a flag for setting the "not main flash" bit)
 	xxd $@.temp | sed 's/5546 320a 5751 5d9e 0020 0000/5546 320a 5751 5d9e 0120 0000/g' | xxd -r >$@
+	rm $@.temp
 
 %.bin: %.elf
 	$(OBJCOPY) -O binary $< $@
