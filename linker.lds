@@ -4,11 +4,16 @@ MEMORY
 {
     /* Try to squeeze down to this target size */
     FLASH (rx) : ORIGIN = 0x00000000, LENGTH = 4K
+    /* Defining a section with LENGTH = 0 causes
+    an error to be raised if we accidentally declare
+    a variable that is stored in RAM.
+    Doesn't help with preventing stack spills though. */
     LOL_NO_RAM (rw) : ORIGIN = 0x400060c0, LENGTH = 0
 }
 
 SECTIONS
 {
+    /* This symbol is used for jumps in startup.S */
     PROVIDE(_bootloader_limit = ORIGIN(FLASH) + LENGTH(FLASH));
 
     .vector :
@@ -24,6 +29,12 @@ SECTIONS
         *(.rodata)
         *(.rodata*)
         *(.gnu.linkonce.t.*)
+        /* The vendor link script puts this into the (writable) RAM
+        segment because that's where gp is pointed.
+        We are abusing the heck out of gp and don't have RAM anyways,
+        so just put this in the normal text segment.
+        GCC will automatically use these sections for data that
+        it determines is "small" without you asking. */
         *(.srodata.cst16)
         *(.srodata.cst8)
         *(.srodata.cst4)
@@ -32,6 +43,7 @@ SECTIONS
         . = ALIGN(4);
     } >FLASH
 
+    /* gp linker relaxation hack */
     PROVIDE( R16_USBD_EPR       = 0x40005C00 );
     PROVIDE( R16_USBD_CNTR      = 0x40005C40 );
     PROVIDE( R16_USBD_ISTR      = 0x40005C44 );

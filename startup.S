@@ -22,6 +22,8 @@ _start:
     // Weird things seem to happen if you fall off the end of flash
     la a0, _bootloader_limit
     lw a0, (a0)
+    // Note that flash *doesn't* erase to 0xffffffff but instead this value
+    // (yes, this is technically mentioned in the reference manual)
     la a1, 0xe339e339
     beq a0, a1, _enter_bootloader
 
@@ -62,7 +64,7 @@ _start:
     sw a1, (STK_CMPLR-SYSTICK_BASE)(a0)
     la a1, 0b111000
     sw a1, (STK_CTLR-SYSTICK_BASE)(a0)
-    // Seems to spuriously fire immediately if start bit is set concurrently
+    // Seems to spuriously fire immediately if start bit is set concurrently?
     la a1, 0b111001
     sw a1, (STK_CTLR-SYSTICK_BASE)(a0)
 1:

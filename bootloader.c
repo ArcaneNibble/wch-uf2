@@ -11,6 +11,16 @@ typedef struct USBD_descriptor {
 
 // USBD memory allocation:
 // WARNING THIS IS A 16-bit MEMORY LMAO
+// In other words, the memory contains 16-bit values spaced out into 32-bit words:
+// xx yy 00 00 | zz ww 00 00 | aa bb 00 00 | ..
+// This significantly complicates memory copying.
+// Also, accessing past the end of USBD RAM will lock up the entire core
+// to the point where debugging stops working. This can be triggered by an "x"
+// command in GDB (so be careful).
+// There are indeed 512 bytes of total USBD RAM, but they span 1024 bytes of
+// address space (because the 00 00 doesn't count).
+// (It feels like WCH grafted an old core for not-32-bit processors into
+// these RISC-V parts...)
 // +0x00
 //      descriptors (two sets of two endpoints)
 // +0x20
@@ -30,7 +40,8 @@ typedef struct USBD_descriptor {
 // In addition to the expected USB buffers, this RAM is used to store program state.
 // This allows the *entire* SRAM to be used when downloading to SRAM.
 
-// Note that every buffer that needs to be sent over USB must be 16-bit aligned.
+// Note that every buffer that needs to be sent over USB must be 16-bit aligned
+// (in code flash).
 // This is assumed by copying code (which will copy in 16-bit chunks).
 
 // Device descriptor
@@ -92,6 +103,8 @@ const uint8_t USB_CONF_DESC[0x20] __attribute__((aligned(2))) = {
 
 // Must be UTF-16, and the first character is a *manually-calculated* total length
 // (combined with a 0x03 string descriptor type)
+// Non-latin is allowed, but LANGID is hardcoded to be 0x0409 (English (United States))
+// further down in the code.
 const uint16_t USB_MANUF[13] = u"\u031aArcaneNibble";
 const uint16_t USB_PRODUCT[15] = u"\u031eCH32V UF2 Boot";
 // Used for outputting serial number from electronic signature bytes
@@ -101,6 +114,8 @@ const uint8_t HEXLUT[16] = "0123456789ABCDEF";
 const uint8_t INQUIRY_RESPONSE[36] __attribute__((aligned(2))) = {
     0x00,   // direct access block device
     0x80,   // RMB removable media
+    // (if you don't set the RMB flag, macOS will show an orange drive
+    // instead of a grey drive, contrary to expectations of flash drives)
     0x04,   // SPC-2
     0x02,   // fixed, response data format
     0x1F,   // additional length
@@ -119,7 +134,7 @@ const uint8_t INQUIRY_RESPONSE[36] __attribute__((aligned(2))) = {
 // Most of these parameters *cannot* be changed,
 // as synthesize_block assumes a particular layout
 const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(2))) = {
-    0xeb, 0x3c, 0x90,                           // jump
+    0xeb, 0x3c, 0x90,                           // jump (seems to be required for some OSes to auto-mount)
     'A', 'r', 'c', 'a', 'n', 'e', 'N', 'b',     // oem name
     0x00, 0x02,                                 // 512 bytes/sector
     0x01,                                       // 1 sector/cluster
@@ -136,6 +151,8 @@ const uint8_t BOOT_SECTOR[0x3e] __attribute__((aligned(2))) = {
     0xde, 0xad, 0xbe, 0xef,                     // serial number
     'C', 'H', '3', '2', 'V', ' ', 'U', 'F', '2', ' ', ' ',      // volume label
     'F', 'A', 'T', '1', '6', ' ', ' ', ' ',     // fs type
+    // note that the trailing 55 aa is generated in code
+    // (seemingly also required for auto-mount on some OSes)
 };
 
 // Change here to change UF2 data files
@@ -195,6 +212,8 @@ extern volatile uint32_t            USB_EP0_IN[4];
 extern volatile uint32_t            USB_EP1_OUT[32];
 extern volatile uint32_t            USB_EP1_IN[32];
 
+// These are the state variables shoved into USBD RAM
+// (in the area not being used by buffers)
 extern uint32_t SCSI_XFER_CUR_LBA;
 extern uint32_t SCSI_XFER_BLK_LEFT;
 extern uint32_t BLOCKNUM_LO;
@@ -240,7 +259,7 @@ extern uint32_t UF2_GOT_BLOCKS[AUTO_BOOT_BITMAP_NUM_HWORDS];
 #define R32_GPIOA_BSHR      (*(volatile uint32_t*)0x40010810)
 
 // USBD registers are within range to perform gp relaxation
-// XXX wrong access size
+// XXX wrong access size, but this doesn't seem to matter
 extern volatile uint32_t R16_USBD_EPR[16];
 extern volatile uint16_t R16_USBD_CNTR;
 extern volatile uint16_t R16_USBD_ISTR;
@@ -301,6 +320,16 @@ extern volatile uint16_t R16_USBD_DADDR;
 // the generated assembly.
 
 __attribute__((always_inline)) static inline void set_ep_mode(uint32_t epidx, uint32_t epaddr, uint32_t eptype, uint32_t stat_rx, uint32_t stat_tx, uint32_t xtra, int clear_dtog) {
+    // The way the shifts are written has been tweaked
+    // to generate smaller code than some possible alternatives.
+    // "xtra" is used solely to set bit8 (EP_KIND, STATUS_OUT).
+    // This is an optimization present in the core to simplify
+    // CONTROL IN transactions, i.e.:
+    // 1. SETUP (H->D)
+    // 2. IN (D->H)
+    // 3. ZLP OUT (H->D) for status signaling
+    // The bit optimizes step 3 s.t. it is not necessary to
+    // check that a ZLP specifically was received.
     uint32_t val = R16_USBD_EPR[epidx];
     uint32_t cur_stats;
     if (clear_dtog)
@@ -310,6 +339,7 @@ __attribute__((always_inline)) static inline void set_ep_mode(uint32_t epidx, ui
     uint32_t want_stats = (stat_rx << 12) | (stat_tx) << 4;
     R16_USBD_EPR[epidx] = epaddr | (eptype << 9) | xtra | (cur_stats ^ want_stats);
 }
+// Outlining these functions saves code size
 static void set_ep0_ack_in() {
     set_ep_mode(0, 0, USB_EPTYPE_CONTROL, USB_STAT_STALL, USB_STAT_ACK, 0, 0);
 }
@@ -382,8 +412,10 @@ static void synthesize_block(uint32_t block, uint32_t piece) {
         if (block == 0 && piece == 7)
             USB_EP1_IN[31] = 0xaa55;
     } else if (block == 1 && piece == 0) {
+        // special FAT entries
         USB_EP1_IN[0] = 0xfff8;
         USB_EP1_IN[1] = 0xffff;
+        // one cluster each for the UF2 files
         USB_EP1_IN[2] = 0xfff8;
         USB_EP1_IN[3] = 0xfff8;
         for (int i = 4; i < 32; i++)
@@ -411,6 +443,7 @@ static void make_msc_csw(uint32_t dCSWTag, uint32_t error) {
 
 __attribute__((naked)) int main(void) {
     // Make sure this stuff is enabled
+    // (not every startup.S code path activates them)
     R32_RCC_APB1PCENR |= (1 << 27) | (1 << 28);
     R32_PWR_CTLR |= 1 << 8;
     R16_BKP_DATAR10 = 0;
@@ -453,6 +486,14 @@ __attribute__((naked)) int main(void) {
 
     UF2_GOT_BLOCKS[AUTO_BOOT_BITMAP_NUM_HWORDS - 1] = 0;
 
+    // FIXME: we've tried activating USB interrupts and using WFI/WFE
+    // and haven't managed to get it to work properly with a
+    // "still mostly polling model"
+    // (i.e. WFE, then read interrupt status registers, then loop)
+    // We haven't successfully investigated why.
+    // We also haven't managed to write the code s.t.
+    // variables (outputting_desc and msc_state) are properly stored
+    // in registers when using a separate "IRQ handler" function
 
     while (1) {
         uint32_t usb_int_status = R16_USBD_ISTR;
@@ -465,6 +506,12 @@ __attribute__((naked)) int main(void) {
             R16_USBD_CNTR = 0;
         } else if (usb_int_status & (1 << 11)) {
             // suspend
+            // FIXME: note that this polling code makes the core exceed
+            // suspend current limits
+            // (the "Suspend Current Limit Changes ECN" says that 2.5 mA is allowed, but
+            // the CH32V203 datasheet says that supply current in run mode is somewhere
+            // between 3.7 mA to 7.1 mA at a F_{HCLK} of 96 MHz. Ports are usually not
+            // sensitive to this, it merely breaks the rules and wastes battery life.)
             R16_USBD_CNTR |= 1 << 3;
             R16_USBD_CNTR |= 1 << 2;
         } else if (usb_int_status & (1 << 12)) {
@@ -487,6 +534,8 @@ __attribute__((naked)) int main(void) {
                     } else if (bRequest_bmRequestType == 0x0102) {
                         // CLEAR_FEATURE
                         // XXX how is this supposed to work?
+                        // Not implementing this will cause subtle breakage
+                        // when an unsupported SCSI command is sent.
                         uint32_t wIndex = USB_EP0_OUT[2];
                         if (wIndex == 0x81) {
                             uint32_t dCSWTag = CSWTAG_LO | (CSWTAG_HI << 16);
@@ -544,6 +593,8 @@ __attribute__((naked)) int main(void) {
                             CTRL_XFER_STATE = STATE_CTRL_SIMPLE_IN;
                             set_ep0_ack_in();
                         } else if (wValue == 0x0303) {
+                            // Note: having a serial number is mandatory for USB MSC
+                            // (and is generally nice to have)
                             USB_EP0_IN[0] = 0x0300 | (24 * 2 + 2);
                             USB_EP0_IN[1] = HEXLUT[ESIG_UNIID(0) >> 4];
                             USB_EP0_IN[2] = HEXLUT[ESIG_UNIID(0) & 0xf];
@@ -704,6 +755,9 @@ __attribute__((naked)) int main(void) {
                                     // start/stop unit
                                     uint32_t param = USB_EP1_OUT[9] >> 8;
                                     make_msc_csw(dCSWTag, 0);
+                                    // this flag is used by "eject" in Windows Explorer
+                                    // (*not* safely remove hardware though,
+                                    // and also not "drag to trash" in macOS)
                                     if (param == 0x02)
                                         msc_state = STATE_SENT_CSW_REBOOT;
                                     else
@@ -711,6 +765,8 @@ __attribute__((naked)) int main(void) {
                                     break;
                                 case 0x23:
                                     // read format capacity
+                                    // without this command, Windows won't detect the drive
+                                    // (but Linux and macOS will)
                                     ep1_send_hardcoded_response((uint16_t*)READ_FORMAT_CAPACITY, sizeof(READ_FORMAT_CAPACITY));
                                     msc_state = STATE_SENT_DATA_IN;
                                     break;
@@ -743,6 +799,8 @@ __attribute__((naked)) int main(void) {
                                         tmp = USB_EP1_OUT[11];
                                         uint32_t blocks = (tmp >> 8) | ((tmp & 0xff) << 8);
 
+                                        // The following two checks are out of paranoia
+                                        // Hosts don't seem to send this crap
                                         if (blocks > 0x4000 || lba >= 0x4000 || (blocks + lba) > 0x4000) {
                                             msc_state = STATE_SENT_CSW | (5 << 20) | (0x24 << 24);
                                             set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_STALL, USB_STAT_STALL, 0, 0);
@@ -764,6 +822,17 @@ __attribute__((naked)) int main(void) {
                                             msc_state = STATE_SEND_MORE_READ;
                                         } else {
                                             // WRITE
+                                            // Note: bug that took forever to track down: need to set up IN
+                                            // for *NAK* and *not* STALL.
+                                            // Hosts seem to do the BULK IN asynchronously with sending all of the
+                                            // data on the BULK OUT pipe (which takes multiple USB packets to send).
+                                            // If the BULK IN (asynchronously) returns STALL,
+                                            // the host will assume the command failed rather than "not done yet".
+                                            // This will trigger mysterious bugs:
+                                            // * Linux will fail using dd oflag=direct or with too much data written,
+                                            // but you will win the race condition for small transfers.
+                                            // * Windows will take a long time to detect and will only work
+                                            // a fraction of the time (USBPcap shows a large number of device resets)
                                             set_ep_mode(1, 1, USB_EPTYPE_BULK, USB_STAT_ACK, USB_STAT_NAK, 0, 0);
                                             msc_state = STATE_WAITING_FOR_WRITE;
                                         }
@@ -772,6 +841,11 @@ __attribute__((naked)) int main(void) {
                                 default:
                                     // illegal command
                                     msc_state = STATE_SENT_CSW | (5 << 20);
+                                    // Not checking the transfer length here will trigger mysterious bugs,
+                                    // especially on Windows. Windows will get upset when trying to read
+                                    // the *SCSI* serial number page using INQUIRY.
+                                    // Quirks that happen when trying to do data transfer and control plane ops
+                                    // via the same pipe...
                                     if (dCBWDataTransferLength == 0) {
                                         make_msc_csw(dCSWTag, 1);
                                     } else {
@@ -862,6 +936,8 @@ __attribute__((naked)) int main(void) {
                                         R32_FLASH_CTLR = (1 << 17) | (1 << 6);
                                         while (R32_FLASH_STATR & 1) {}
                                         R32_FLASH_CTLR = 1 << 16;
+                                        // Yes, we can program flash while running from it!
+                                        // (as long as we are in the "zero-wait" area which we are)
                                         for (int i = 0; i < 64; i++) {
                                             volatile uint32_t *addr = (volatile uint32_t *)(address + i * 4);
                                             uint32_t val = USB_SECTOR_STASH[i * 2] | (USB_SECTOR_STASH[i * 2 + 1] << 16);
@@ -909,6 +985,8 @@ __attribute__((naked)) int main(void) {
                         msc_state = (msc_state & 0xffffff00) | STATE_WANT_CBW;
                         break;
                     case STATE_SENT_CSW_REBOOT:
+                        // Microsoft's bootloader claims we need to do this
+                        // (but we didn't personally test it)
                         STK_CMPLR = (50 /* ms */ * 12000 /* assume 96 MHz system clock, div8 */);
                         STK_CTLR = 0b111000;
                         STK_CTLR = 0b111001;
@@ -918,12 +996,16 @@ __attribute__((naked)) int main(void) {
                         R16_USBD_CNTR = 0b11;
                         R32_EXTEN_CTR &= ~(1 << 1);
                         if (ADDRESS_HI >> 8 == 0x20) {
-                            // ram boot
+                            // ram boot, go back to original clock settings
                             R32_RCC_CFGR0 = (R32_RCC_CFGR0 & ~0b11) | 0b00;
                             while ((R32_RCC_CFGR0 & 0b1100) != 0b0000) {}
+                            // xxx note that we didn't reset every other peripheral config
                             asm volatile("la t0, 0x20000000\njr t0\n1:\nj 1b\n");
                         } else {
                             // wtf why does this work and the other stuff doesn't?
+                            // xxx weird things seem to happen if you try to soft reset
+                            // (or mess with PLLs) when the debugger is attached
+                            // we didn't fully characterize this
                             R16_BKP_DATAR10 = 0x4170;
                             PFIC_CFGR = 0xbeef0080;
                             while (1) { asm volatile(""); }
