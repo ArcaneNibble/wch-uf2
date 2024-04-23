@@ -9,6 +9,7 @@
     - Code size is improved through use of "XW" instructions, which are not upstream
 - Supports USBD peripheral *only* (i.e. not USBFS)
     - USBD and USBFS are completely different, and the QFN28 package (which is available in largest quantities on LCSC) only bonds out USBD
+    - Note that USBD requires a USB A-A cable if using the official devkit
 - Runs off of internal 8 MHz oscillator (despite stability concerns)
     - The HSI oscillator's tolerance (-1.0% to +1.6%) is well outside of the range specified for USB full speed ($\pm$ 0.25%), but it seems to work in practice n=1 ¯\\\_(ツ)\_/¯
 - Should work across most of the CH32V2xx and CH32V3xx family with appropriate changes to hardcoded constants.
