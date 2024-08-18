@@ -17,7 +17,7 @@ This code implements a [uf2](https://github.com/microsoft/uf2) bootloader for RI
 - Runs off of internal 8 MHz oscillator (despite stability concerns)
     - The HSI oscillator's tolerance (-1.0% to +1.6%) is well outside of the range specified for USB full speed ($\pm$ 0.25%), but it seems to work in practice n=1 ¯\\\_(ツ)\_/¯
     - The vendor's ISP ROM bootloader also does this
-- Should work across most of the CH32V2xx and CH32V3xx family with appropriate changes to hardcoded constants.
+- Should work across CH32V2xx family with appropriate changes to hardcoded constants. Does *not* support CH32V3xx (which doesn't have USBD).
 - Allows both download to flash and to SRAM with the "not main flash" flag (this is how the RP2040 bootrom works)
     - Flash download address must be 08xxxxxx (i.e. not starting at 0)
     - SRAM download address must be 20xxxxxx
