@@ -995,8 +995,10 @@ __attribute__((naked)) int main(void) {
                         while (!(STK_SR & 1)) {}
                         STK_CTLR = 0;
                         STK_SR = 0;
-                        R16_USBD_CNTR = 0b11;
                         R32_EXTEN_CTR &= ~(1 << 1);
+                        R16_USBD_CNTR = 1;
+                        R16_USBD_ISTR = 0;
+                        R16_USBD_CNTR = 0b11;
                         if (ADDRESS_HI >> 8 == 0x20) {
                             // ram boot, go back to original clock settings
                             R32_RCC_CFGR0 = (R32_RCC_CFGR0 & ~0b11) | 0b00;
