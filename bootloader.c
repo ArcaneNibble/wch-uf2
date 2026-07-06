@@ -468,10 +468,10 @@ __attribute__((naked)) int main(void) {
     R16_USBD_CNTR = 1;
     USB_DESCS[0].addr_tx = 0x30 / 2;
     USB_DESCS[0].addr_rx = 0x20 / 2;
-    USB_DESCS[0].count_rx = (8 << 10);
+    USB_DESCS[0].count_rx = ((8 / 2) << 10);
     USB_DESCS[1].addr_tx = 0xc0 / 2;
     USB_DESCS[1].addr_rx = 0x40 / 2;
-    USB_DESCS[1].count_rx = (2 << 10) | (1 << 15);
+    USB_DESCS[1].count_rx = (1 << 10) | (1 << 15);
     // XXX because the table is at offset 0 don't bother writing this
 
     // Attach USB
