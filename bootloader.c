@@ -1,5 +1,3 @@
-#include <ch32v20x.h>
-#include <debug.h>
 // CH32V UF2 bootloader, size-optimized (target: <= 4096 bytes)
 
 #include <stdint.h>
