@@ -444,7 +444,6 @@ static void make_msc_csw(uint32_t dCSWTag, uint32_t error) {
 }
 
 __attribute__((naked)) int main(void) {
-// int main(void) {
     // Make sure this stuff is enabled
     // (not every startup.S code path activates them)
     R32_RCC_APB1PCENR |= 0x18000000; // Set BKPEN and PWREN
