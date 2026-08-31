@@ -1,3 +1,5 @@
+#include <ch32v20x.h>
+#include <debug.h>
 // CH32V UF2 bootloader, size-optimized (target: <= 4096 bytes)
 
 #include <stdint.h>
@@ -444,9 +446,10 @@ static void make_msc_csw(uint32_t dCSWTag, uint32_t error) {
 }
 
 __attribute__((naked)) int main(void) {
+// int main(void) {
     // Make sure this stuff is enabled
     // (not every startup.S code path activates them)
-    R32_RCC_APB1PCENR |= (1 << 27) | (1 << 28);
+    R32_RCC_APB1PCENR |= 0x18000000; // Set BKPEN and PWREN
     R32_PWR_CTLR |= 1 << 8;
     R16_BKP_DATAR10 = 0;
 
